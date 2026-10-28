@@ -1,0 +1,2161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="creative-medium" content="interactive-prototype">
+<title>TRUST GUARDIAN · 美妆种草核验</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/ai-origin.css">
+<link rel="stylesheet" href="assets/image-authenticity.css">
+</head>
+<body>
+<div id="root"></div>
+<script src="assets/vendor/react.production.min.js"></script>
+<script src="assets/vendor/react-dom.production.min.js"></script>
+<script src="assets/vendor/babel.min.js"></script>
+<script src="assets/vendor/tailwind.js"></script>
+<script>
+  tailwind.config = {
+    corePlugins: { preflight: false },
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Inter', '"Noto Sans SC"', 'sans-serif'],
+          mono: ['"Space Grotesk"', '"JetBrains Mono"', 'monospace']
+        },
+        colors: { neon: '#F31199', volt: '#0047FD', grape: '#5A1FD0' }
+      }
+    }
+  };
+</script>
+<script src="assets/vendor/framer-motion.js"></script>
+<script type="text/babel">
+/* BEGIN USAGE */
+// tweaks-panel.jsx
+// Reusable Tweaks shell + form-control helpers.
+// Exports (to window): useTweaks, TweaksPanel, TweakSection, TweakRow, TweakSlider,
+//   TweakToggle, TweakRadio, TweakSelect, TweakText, TweakNumber, TweakColor, TweakButton.
+//
+// Owns the host protocol (listens for miaoda:tweaks:activate / miaoda:tweaks:deactivate,
+// posts miaoda:tweaks:available / miaoda:tweaks:set-keys / miaoda:tweaks:dismissed) so
+// individual prototypes don't re-roll it. Ships a consistent set of controls so you
+// don't hand-draw <input type="range">, segmented radios, steppers, etc.
+//
+// Usage (in an HTML file that loads React + Babel):
+//
+//   const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+//     "primaryColor": "#D97757",
+//     "palette": ["#D97757", "#29261b", "#f6f4ef"],
+//     "fontSize": 16,
+//     "density": "regular",
+//     "dark": false
+//   }/*EDITMODE-END*/;
+//
+//   TWEAK_DEFAULTS must live inline in the HTML file — in a <script type="text/babel"> block,
+//   not in a separate .jsx/.js loaded via <script src>. That in-HTML block is the region the
+//   host rewrites when the user adjusts a tweak, so keep it wrapped in the /*EDITMODE-BEGIN*/ …
+//   /*EDITMODE-END*/ markers and the object between them valid JSON — double-quoted keys, no
+//   trailing commas, no comments or expressions — even after you rename the keys. Move it out
+//   of the HTML, strip the markers, or use a non-JSON body and tweak edits silently stop persisting.
+//
+//   function App() {
+//     const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+//     return (
+//       <div style={{ fontSize: t.fontSize, color: t.primaryColor }}>
+//         Hello
+//         <TweaksPanel>
+//           <TweakSection label="Typography" />
+//           <TweakSlider label="Font size" value={t.fontSize} min={10} max={32} unit="px"
+//                        onChange={(v) => setTweak('fontSize', v)} />
+//           <TweakRadio  label="Density" value={t.density}
+//                        options={['compact', 'regular', 'comfy']}
+//                        onChange={(v) => setTweak('density', v)} />
+//           <TweakSection label="Theme" />
+//           <TweakColor  label="Primary" value={t.primaryColor}
+//                        options={['#D97757', '#2A6FDB', '#1F8A5B', '#7A5AE0']}
+//                        onChange={(v) => setTweak('primaryColor', v)} />
+//           <TweakColor  label="Palette" value={t.palette}
+//                        options={[['#D97757', '#29261b', '#f6f4ef'],
+//                                  ['#475569', '#0f172a', '#f1f5f9']]}
+//                        onChange={(v) => setTweak('palette', v)} />
+//           <TweakToggle label="Dark mode" value={t.dark}
+//                        onChange={(v) => setTweak('dark', v)} />
+//         </TweaksPanel>
+//       </div>
+//     );
+//   }
+//
+// TweakRadio is the segmented control for 2–3 short options (auto-falls-back to
+// TweakSelect past ~16/~10 chars per label); reach for TweakSelect directly when
+// options are many or long. For color tweaks always curate 3-4 options rather than
+// a free picker; an option can also be a whole 2–5 color palette (the stored value
+// is the array). The Tweak* controls are a floor, not a ceiling — build custom
+// controls inside the panel if a tweak calls for UI they don't cover.
+/* END USAGE */
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Palette follows the Arco/Semi neutral token system the 创意设计模式 "设计风格"
+// panel is designed in (Figma node 2008-22724): a solid white card on neutral
+// grays instead of the previous warm-glass look.
+//   text-1 #1F2329  text-2 #646A73  text-3 #86909C
+//   border #DEE0E3  fill #EBECEE / #F2F3F5  accent(selected/on) #1F2329
+const __TWEAKS_STYLE = `
+  .twk-panel{position:fixed;right:16px;top:16px;z-index:2147483646;width:280px;
+    max-height:calc(100vh - 32px);display:flex;flex-direction:column;
+    transform:scale(var(--dc-inv-zoom,1));transform-origin:top right;
+    background:#fff;color:#1F2329;
+    border:.5px solid #DEE0E3;border-radius:12px;
+    box-shadow:0 8px 24px 8px rgba(0,0,0,.04),0 6px 12px rgba(0,0,0,.04),0 2px 6px rgba(0,0,0,.04);
+    font:12px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif;overflow:hidden}
+  .twk-hd{display:flex;align-items:center;justify-content:space-between;
+    padding:12px 12px 12px 16px;cursor:move;user-select:none;
+    border-bottom:.5px solid #EBECEE}
+  .twk-hd b{font-size:14px;font-weight:600;letter-spacing:.01em;color:#1F2329}
+  .twk-x{appearance:none;border:0;background:transparent;color:#86909C;
+    width:24px;height:24px;border-radius:6px;cursor:default;font-size:13px;line-height:1}
+  .twk-x:hover{background:#F2F3F5;color:#1F2329}
+  .twk-body{padding:14px 16px 16px;display:flex;flex-direction:column;gap:14px;
+    overflow-y:auto;overflow-x:hidden;min-height:0;
+    scrollbar-width:thin;scrollbar-color:#DEE0E3 transparent}
+  .twk-body::-webkit-scrollbar{width:8px}
+  .twk-body::-webkit-scrollbar-track{background:transparent;margin:2px}
+  .twk-body::-webkit-scrollbar-thumb{background:#DEE0E3;border-radius:4px;
+    border:2px solid transparent;background-clip:content-box}
+  .twk-body::-webkit-scrollbar-thumb:hover{background:#C9CDD4;
+    border:2px solid transparent;background-clip:content-box}
+  .twk-row{display:flex;flex-direction:column;gap:8px}
+  .twk-row-h{flex-direction:row;align-items:center;justify-content:space-between;gap:10px}
+  .twk-lbl{display:flex;justify-content:space-between;align-items:baseline;
+    color:#1F2329}
+  .twk-lbl>span:first-child{font-weight:500}
+  .twk-val{color:#646A73;font-variant-numeric:tabular-nums}
+
+  .twk-sect{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    color:#86909C;padding:10px 0 0}
+  .twk-sect:first-child{padding-top:0}
+
+  .twk-field{appearance:none;box-sizing:border-box;width:100%;min-width:0;height:32px;padding:0 10px;
+    border:.5px solid #DEE0E3;border-radius:8px;
+    background:#fff;color:inherit;font:inherit;outline:none}
+  .twk-field:focus{border-color:#1F2329;box-shadow:0 0 0 2px rgba(31,35,41,.1)}
+  select.twk-field{padding-right:24px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%234E5969' d='M0 0h10L5 6z'/></svg>");
+    background-repeat:no-repeat;background-position:right 10px center}
+
+  .twk-slider{appearance:none;-webkit-appearance:none;width:100%;height:4px;margin:6px 0;
+    border-radius:999px;background:#EBECEE;outline:none}
+  .twk-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+    width:16px;height:16px;border-radius:50%;background:#fff;
+    border:.5px solid #DEE0E3;box-shadow:0 1px 3px rgba(0,0,0,.16);cursor:default}
+  .twk-slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;
+    background:#fff;border:.5px solid #DEE0E3;box-shadow:0 1px 3px rgba(0,0,0,.16);cursor:default}
+
+  .twk-seg{position:relative;display:flex;padding:2px;border-radius:8px;
+    background:#EBECEE;user-select:none}
+  .twk-seg-thumb{position:absolute;top:2px;bottom:2px;border-radius:6px;
+    background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1);
+    transition:left .15s cubic-bezier(.3,.7,.4,1),width .15s}
+  .twk-seg.dragging .twk-seg-thumb{transition:none}
+  .twk-seg button{appearance:none;position:relative;z-index:1;flex:1;border:0;
+    background:transparent;color:#646A73;font:inherit;font-weight:500;min-height:28px;
+    border-radius:6px;cursor:default;padding:4px 6px;line-height:1.2;
+    overflow-wrap:anywhere;transition:color .15s}
+  .twk-seg button[aria-checked="true"]{color:#1F2329}
+
+  .twk-toggle{position:relative;width:36px;height:20px;border:0;border-radius:999px;
+    background:#E4E6E8;transition:background .15s;cursor:default;padding:0}
+  .twk-toggle[data-on="1"]{background:#1F2329}
+  .twk-toggle i{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .15s}
+  .twk-toggle[data-on="1"] i{transform:translateX(16px)}
+
+  .twk-num{display:flex;align-items:center;box-sizing:border-box;min-width:0;height:32px;padding:0 0 0 10px;
+    border:.5px solid #DEE0E3;border-radius:8px;background:#fff}
+  .twk-num-lbl{font-weight:500;color:#646A73;cursor:ew-resize;
+    user-select:none;padding-right:8px}
+  .twk-num input{flex:1;min-width:0;height:100%;border:0;background:transparent;
+    font:inherit;font-variant-numeric:tabular-nums;text-align:right;padding:0 10px 0 0;
+    outline:none;color:inherit;-moz-appearance:textfield}
+  .twk-num input::-webkit-inner-spin-button,.twk-num input::-webkit-outer-spin-button{
+    -webkit-appearance:none;margin:0}
+  .twk-num-unit{padding-right:10px;color:#86909C}
+
+  .twk-btn{appearance:none;height:32px;padding:0 14px;border:0;border-radius:8px;
+    background:#1F2329;color:#fff;font:inherit;font-weight:500;cursor:default}
+  .twk-btn:hover{background:#333A44}
+  .twk-btn.secondary{background:#F2F3F5;color:#1F2329}
+  .twk-btn.secondary:hover{background:#E5E6EB}
+
+  .twk-swatch{appearance:none;-webkit-appearance:none;width:56px;height:24px;
+    border:.5px solid #DEE0E3;border-radius:6px;padding:0;cursor:default;
+    background:transparent;flex-shrink:0}
+  .twk-swatch::-webkit-color-swatch-wrapper{padding:0}
+  .twk-swatch::-webkit-color-swatch{border:0;border-radius:5.5px}
+  .twk-swatch::-moz-color-swatch{border:0;border-radius:5.5px}
+
+  .twk-chips{display:flex;gap:8px}
+  .twk-chip{position:relative;appearance:none;flex:1;min-width:0;height:40px;
+    padding:0;border:0;border-radius:6px;overflow:hidden;cursor:default;
+    box-shadow:0 0 0 .5px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.05);
+    transition:transform .12s cubic-bezier(.3,.7,.4,1),box-shadow .12s}
+  .twk-chip:hover{transform:translateY(-1px);
+    box-shadow:0 0 0 .5px rgba(0,0,0,.14),0 4px 10px rgba(0,0,0,.1)}
+  .twk-chip[data-on="1"]{box-shadow:0 0 0 2px #fff,0 0 0 3.5px rgba(0,0,0,.85),
+    0 2px 6px rgba(0,0,0,.15)}
+  .twk-chip>span{position:absolute;top:0;bottom:0;right:0;width:34%;
+    display:flex;flex-direction:column;box-shadow:-1px 0 0 rgba(0,0,0,.1)}
+  .twk-chip>span>i{flex:1;box-shadow:0 -1px 0 rgba(0,0,0,.1)}
+  .twk-chip>span>i:first-child{box-shadow:none}
+  .twk-chip svg{position:absolute;top:6px;left:6px;width:13px;height:13px;
+    filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))}
+`;
+
+// ── useTweaks ───────────────────────────────────────────────────────────────
+// Single source of truth for tweak values. setTweak persists via the host
+// (miaoda:tweaks:set-keys → host rewrites the EDITMODE block on disk).
+function useTweaks(defaults) {
+  const [values, setValues] = React.useState(defaults);
+  // Accepts either setTweak('key', value) or setTweak({ key: value, ... }) so a
+  // useState-style call doesn't write a "[object Object]" key into the persisted
+  // JSON block.
+  const setTweak = React.useCallback((keyOrEdits, val) => {
+    const edits = typeof keyOrEdits === 'object' && keyOrEdits !== null
+      ? keyOrEdits : { [keyOrEdits]: val };
+    setValues((prev) => ({ ...prev, ...edits }));
+    try { window.parent.postMessage({ type: 'miaoda:tweaks:set-keys', edits }, '*'); } catch (e) { /* no parent — ignore */ }
+    // Same-window signal so in-page listeners (deck-stage rail thumbnails)
+    // can react — the parent message only reaches the host, not peers.
+    window.dispatchEvent(new CustomEvent('tweakchange', { detail: edits }));
+  }, []);
+  return [values, setTweak];
+}
+
+// ── TweaksPanel ─────────────────────────────────────────────────────────────
+// Floating shell. Registers the protocol listener BEFORE announcing
+// availability — if the announce ran first, the host's activate could land
+// before our handler exists and the toolbar toggle would silently no-op.
+// The close button posts miaoda:tweaks:dismissed so the host's toolbar toggle
+// flips off in lockstep; the host echoes miaoda:tweaks:deactivate back which
+// is what actually hides the panel.
+function TweaksPanel({ title = 'Tweaks', children }) {
+  const [open, setOpen] = React.useState(false);
+  const dragRef = React.useRef(null);
+  // x = distance from the viewport's right edge, y = distance from its TOP.
+  // The panel anchors top-right (right/top in CSS) so it clears the host's
+  // bottom toolbar; both axes still grow inward, so clamp/drag math is
+  // symmetric with the old bottom-right anchor.
+  const offsetRef = React.useRef({ x: 16, y: 16 });
+  const PAD = 16;
+
+  const clampToViewport = React.useCallback(() => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const maxRight = Math.max(PAD, window.innerWidth - w - PAD);
+    const maxTop = Math.max(PAD, window.innerHeight - h - PAD);
+    offsetRef.current = {
+      x: Math.min(maxRight, Math.max(PAD, offsetRef.current.x)),
+      y: Math.min(maxTop, Math.max(PAD, offsetRef.current.y)),
+    };
+    panel.style.right = offsetRef.current.x + 'px';
+    panel.style.top = offsetRef.current.y + 'px';
+  }, []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    clampToViewport();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', clampToViewport);
+      return () => window.removeEventListener('resize', clampToViewport);
+    }
+    const ro = new ResizeObserver(clampToViewport);
+    ro.observe(document.documentElement);
+    return () => ro.disconnect();
+  }, [open, clampToViewport]);
+
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      const t = e?.data?.type;
+      if (t === 'miaoda:tweaks:activate') setOpen(true);
+      else if (t === 'miaoda:tweaks:deactivate') setOpen(false);
+    };
+    window.addEventListener('message', onMsg);
+    try { window.parent.postMessage({ type: 'miaoda:tweaks:available' }, '*'); } catch (e) { /* no parent — ignore */ }
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  const dismiss = () => {
+    setOpen(false);
+    try { window.parent.postMessage({ type: 'miaoda:tweaks:dismissed' }, '*'); } catch (e) { /* no parent — ignore */ }
+  };
+
+  const onDragStart = (e) => {
+    const panel = dragRef.current;
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const startRight = window.innerWidth - r.right;
+    const startTop = r.top;
+    const move = (ev) => {
+      offsetRef.current = {
+        x: startRight - (ev.clientX - sx),
+        y: startTop + (ev.clientY - sy),
+      };
+      clampToViewport();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+
+  if (!open) return null;
+  return (
+    <>
+      <style>{__TWEAKS_STYLE}</style>
+      <div ref={dragRef} className="twk-panel" data-miaoda-chrome=""
+           style={{ right: offsetRef.current.x, top: offsetRef.current.y }}>
+        <div className="twk-hd" onMouseDown={onDragStart}>
+          <b>{title}</b>
+          <button className="twk-x" aria-label="Close tweaks"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={dismiss}>✕</button>
+        </div>
+        <div className="twk-body">
+          {children}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Layout helpers ──────────────────────────────────────────────────────────
+
+function TweakSection({ label, children }) {
+  return (
+    <>
+      <div className="twk-sect">{label}</div>
+      {children}
+    </>
+  );
+}
+
+function TweakRow({ label, value, children, inline = false }) {
+  return (
+    <div className={inline ? 'twk-row twk-row-h' : 'twk-row'}>
+      <div className="twk-lbl">
+        <span>{label}</span>
+        {value != null && <span className="twk-val">{value}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ── Controls ────────────────────────────────────────────────────────────────
+
+function TweakSlider({ label, value, min = 0, max = 100, step = 1, unit = '', onChange }) {
+  return (
+    <TweakRow label={label} value={`${value}${unit}`}>
+      <input type="range" className="twk-slider" min={min} max={max} step={step}
+             value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </TweakRow>
+  );
+}
+
+function TweakToggle({ label, value, onChange }) {
+  return (
+    <div className="twk-row twk-row-h">
+      <div className="twk-lbl"><span>{label}</span></div>
+      <button type="button" className="twk-toggle" data-on={value ? '1' : '0'}
+              role="switch" aria-checked={!!value}
+              onClick={() => onChange(!value)}><i /></button>
+    </div>
+  );
+}
+
+function TweakRadio({ label, value, options, onChange }) {
+  const trackRef = React.useRef(null);
+  const [dragging, setDragging] = React.useState(false);
+  // The active value is read by pointer-move handlers attached for the lifetime
+  // of a drag — ref it so a stale closure doesn't fire onChange for every move.
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
+
+  // Segments wrap mid-word once per-segment width runs out. The track is
+  // ~244px (280 panel − 32 body pad − 4 seg pad), each button loses 12px
+  // to its own padding, and 12px system-ui averages ~6.6px/char — so 2
+  // options fit ~16 chars each, 3 fit ~10. Past that (or >3 options), fall
+  // back to a dropdown rather than wrap.
+  const labelLen = (o) => String(typeof o === 'object' ? o.label : o).length;
+  const maxLen = options.reduce((m, o) => Math.max(m, labelLen(o)), 0);
+  const fitsAsSegments = maxLen <= ({ 2: 16, 3: 10 }[options.length] ?? 0);
+  if (!fitsAsSegments) {
+    // <select> emits strings — map back to the original option value so the
+    // fallback stays type-preserving (numbers, booleans) like the segment path.
+    const resolve = (s) => {
+      const m = options.find((o) => String(typeof o === 'object' ? o.value : o) === s);
+      return m === undefined ? s : typeof m === 'object' ? m.value : m;
+    };
+    return <TweakSelect label={label} value={value} options={options}
+                        onChange={(s) => onChange(resolve(s))} />;
+  }
+  const opts = options.map((o) => (typeof o === 'object' ? o : { value: o, label: o }));
+  const idx = Math.max(0, opts.findIndex((o) => o.value === value));
+  const n = opts.length;
+
+  const segAt = (clientX) => {
+    const r = trackRef.current.getBoundingClientRect();
+    const inner = r.width - 4;
+    const i = Math.floor(((clientX - r.left - 2) / inner) * n);
+    return opts[Math.max(0, Math.min(n - 1, i))].value;
+  };
+
+  const onPointerDown = (e) => {
+    setDragging(true);
+    const v0 = segAt(e.clientX);
+    if (v0 !== valueRef.current) onChange(v0);
+    const move = (ev) => {
+      if (!trackRef.current) return;
+      const v = segAt(ev.clientX);
+      if (v !== valueRef.current) onChange(v);
+    };
+    const up = () => {
+      setDragging(false);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  return (
+    <TweakRow label={label}>
+      <div ref={trackRef} role="radiogroup" onPointerDown={onPointerDown}
+           className={dragging ? 'twk-seg dragging' : 'twk-seg'}>
+        <div className="twk-seg-thumb"
+             style={{ left: `calc(2px + ${idx} * (100% - 4px) / ${n})`,
+                      width: `calc((100% - 4px) / ${n})` }} />
+        {opts.map((o) => (
+          <button key={o.value} type="button" role="radio" aria-checked={o.value === value}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </TweakRow>
+  );
+}
+
+function TweakSelect({ label, value, options, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <select className="twk-field" value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => {
+          const v = typeof o === 'object' ? o.value : o;
+          const l = typeof o === 'object' ? o.label : o;
+          return <option key={v} value={v}>{l}</option>;
+        })}
+      </select>
+    </TweakRow>
+  );
+}
+
+function TweakText({ label, value, placeholder, onChange }) {
+  return (
+    <TweakRow label={label}>
+      <input className="twk-field" type="text" value={value} placeholder={placeholder}
+             onChange={(e) => onChange(e.target.value)} />
+    </TweakRow>
+  );
+}
+
+function TweakNumber({ label, value, min, max, step = 1, unit = '', onChange }) {
+  const clamp = (n) => {
+    if (min != null && n < min) return min;
+    if (max != null && n > max) return max;
+    return n;
+  };
+  const startRef = React.useRef({ x: 0, val: 0 });
+  const onScrubStart = (e) => {
+    e.preventDefault();
+    startRef.current = { x: e.clientX, val: value };
+    const decimals = (String(step).split('.')[1] || '').length;
+    const move = (ev) => {
+      const dx = ev.clientX - startRef.current.x;
+      const raw = startRef.current.val + dx * step;
+      const snapped = Math.round(raw / step) * step;
+      onChange(clamp(Number(snapped.toFixed(decimals))));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <div className="twk-num">
+      <span className="twk-num-lbl" onPointerDown={onScrubStart}>{label}</span>
+      <input type="number" value={value} min={min} max={max} step={step}
+             onChange={(e) => onChange(clamp(Number(e.target.value)))} />
+      {unit && <span className="twk-num-unit">{unit}</span>}
+    </div>
+  );
+}
+
+// Relative-luminance contrast pick — checkmarks drawn over a swatch need to
+// read on both #111 and #fafafa without per-option configuration. Hex input
+// only (#rgb / #rrggbb); named or rgb()/hsl() colors fall through to "light".
+function __twkIsLight(hex) {
+  const h = String(hex).replace('#', '');
+  const x = h.length === 3 ? h.replace(/./g, (c) => c + c) : h.padEnd(6, '0');
+  const n = parseInt(x.slice(0, 6), 16);
+  if (Number.isNaN(n)) return true;
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return r * 299 + g * 587 + b * 114 > 148000;
+}
+
+const __TwkCheck = ({ light }) => (
+  <svg viewBox="0 0 14 14" aria-hidden="true">
+    <path d="M3 7.2 5.8 10 11 4.2" fill="none" strokeWidth="2.2"
+          strokeLinecap="round" strokeLinejoin="round"
+          stroke={light ? 'rgba(0,0,0,.78)' : '#fff'} />
+  </svg>
+);
+
+// TweakColor — curated color/palette picker. Each option is either a single
+// hex string or an array of 1-5 hex strings; the card adapts — a lone color
+// renders solid, a palette renders colors[0] as the hero (left ~2/3) with the
+// rest stacked in a sharp column on the right. onChange emits the
+// option in the shape it was passed (string stays string, array stays array).
+// Without options it falls back to the native color input for back-compat.
+function TweakColor({ label, value, options, onChange }) {
+  if (!options || !options.length) {
+    return (
+      <div className="twk-row twk-row-h">
+        <div className="twk-lbl"><span>{label}</span></div>
+        <input type="color" className="twk-swatch" value={value}
+               onChange={(e) => onChange(e.target.value)} />
+      </div>
+    );
+  }
+  // Native <input type=color> emits lowercase hex per the HTML spec, so
+  // compare case-insensitively. String() guards JSON.stringify(undefined),
+  // which returns the primitive undefined (no .toLowerCase).
+  const key = (o) => String(JSON.stringify(o)).toLowerCase();
+  const cur = key(value);
+  return (
+    <TweakRow label={label}>
+      <div className="twk-chips" role="radiogroup">
+        {options.map((o, i) => {
+          const colors = Array.isArray(o) ? o : [o];
+          const [hero, ...rest] = colors;
+          const sup = rest.slice(0, 4);
+          const on = key(o) === cur;
+          return (
+            <button key={i} type="button" className="twk-chip" role="radio"
+                    aria-checked={on} data-on={on ? '1' : '0'}
+                    aria-label={colors.join(', ')} title={colors.join(' · ')}
+                    style={{ background: hero }}
+                    onClick={() => onChange(o)}>
+              {sup.length > 0 && (
+                <span>
+                  {sup.map((c, j) => <i key={j} style={{ background: c }} />)}
+                </span>
+              )}
+              {on && <__TwkCheck light={__twkIsLight(hero)} />}
+            </button>
+          );
+        })}
+      </div>
+    </TweakRow>
+  );
+}
+
+function TweakButton({ label, onClick, secondary = false }) {
+  return (
+    <button type="button" className={secondary ? 'twk-btn secondary' : 'twk-btn'}
+            onClick={onClick}>{label}</button>
+  );
+}
+
+// Opt out of DCViewport's transform so position:fixed works against the viewport.
+TweaksPanel.dcOverlay = true;
+
+Object.assign(window, {
+  useTweaks, TweaksPanel, TweakSection, TweakRow,
+  TweakSlider, TweakToggle, TweakRadio, TweakSelect,
+  TweakText, TweakNumber, TweakColor, TweakButton,
+});
+
+// ── TweakSuggestionBar (flag-gated addon) ───────────────────────────────────
+(function () {
+  const s = document.createElement('style');
+  s.textContent = `
+    @keyframes twk-blink{50%{opacity:0}}
+    @keyframes twk-fadein{from{opacity:0;transform:translateX(4px)}to{opacity:1;transform:none}}
+    .twk-sugg{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;
+      background:#F7F8FA;border:.5px solid #EBECEE;transition:all .15s}
+    .twk-sugg:focus-within{background:#F2F3F5;border-color:#DEE0E3}
+    .twk-sugg-field{position:relative;flex:1;min-width:0}
+    .twk-sugg-field input{width:100%;height:20px;border:0;background:transparent;
+      font:inherit;outline:none;color:inherit}
+    .twk-sugg-ghost{position:absolute;inset:0;display:flex;align-items:center;
+      color:#86909C;pointer-events:none;white-space:nowrap;overflow:hidden}
+    .twk-sugg-ghost.hint{color:#A9AEB8}
+    .twk-sugg-caret{display:inline-block;width:1px;height:13px;margin-left:1px;
+      border-right:1.5px solid currentColor;opacity:.5;animation:twk-blink 1s step-end infinite}
+    .twk-sugg-ideas{appearance:none;border:0;background:transparent;font:inherit;
+      font-size:10.5px;font-weight:600;color:#646A73;cursor:default;padding:0 2px;
+      white-space:nowrap;animation:twk-fadein .25s ease}
+    .twk-sugg-ideas:hover{color:#1F2329}
+    .twk-sugg-ideas svg{color:#D97757}
+    .twk-sugg-send{appearance:none;border:0;height:20px;padding:0 8px;border-radius:5px;
+      background:#1F2329;color:#fff;font:inherit;font-size:10px;font-weight:600;cursor:default}
+  `;
+  document.head.appendChild(s);
+})();
+
+const __twkSendChat = (text) => {
+  // Posting to the host must never take the component down: the parent frame can be
+  // cross-origin or already gone, and postMessage throws in both cases.
+  try { window.parent.postMessage({ type: 'miaoda:tweaks:chat', text }, '*'); } catch (e) { /* no parent — ignore */ }
+};
+
+const __TWK_SPARK_PATH = 'M18.3658 62.2435L36.7823 51.9165L37.0858 51.012L36.7823 50.5083H35.8716L32.7853 50.3206L22.2616 50.0389L13.1546 49.6634L4.30054 49.194L2.07438 48.7246L0 45.9551L0.202378 44.5938L2.07438 43.3264L4.75589 43.5611L10.6755 43.9836L19.5801 44.5938L26.0056 44.9693L35.568 45.9551H37.0858L37.2882 45.3448L36.7823 44.9693L36.3775 44.5938L27.1693 38.3507L17.2022 31.7789L11.9909 27.9767L9.20822 26.0522L7.79157 24.2684L7.18443 20.3254L9.71416 17.5089L13.1546 17.7436L14.0147 17.9783L17.5057 20.654L24.9431 26.4277L34.6573 33.5627L36.0739 34.7362L36.6444 34.3512L36.7317 34.079L36.0739 32.9994L30.8121 23.4704L25.1961 13.7537L22.6664 9.71675L22.0086 7.32277C21.7539 6.31812 21.6039 5.48695 21.6039 4.45938L24.4878 0.516349L26.1068 0L30.0026 0.516349L31.6216 1.92457L34.0502 7.46359L37.9459 16.1476L44.0173 27.9767L45.7881 31.4973L46.7494 34.7362L47.1036 35.722H47.7107V35.1587L48.2166 28.4931L49.1274 20.3254L50.0381 9.81063L50.3416 6.85336L51.8089 3.28586L54.7434 1.36128L57.0201 2.44092L58.8921 5.11655L58.6391 6.85336L57.5261 14.0822L55.3505 25.395L53.9338 32.9994H54.7434L55.7047 32.0136L59.5498 26.944L65.9753 18.8702L68.8086 15.6782L72.1479 12.1577L74.2729 10.4678H78.3204L81.2549 14.8802L79.9395 19.4335L75.7907 24.6909L72.3503 29.1503L67.4173 35.7593L64.3563 41.0732L64.6308 41.5116L65.3682 41.4487L76.499 39.0548L82.5198 37.9751L89.7042 36.7547L92.9423 38.2568L93.2964 39.8058L92.0316 42.9509L84.3412 44.8285L75.3354 46.6592L61.9245 49.8162L61.776 49.9356L61.9513 50.1956L67.9991 50.743L70.5795 50.8839H76.9038L88.6923 51.7757L91.7786 53.7942L93.6 56.282L93.2964 58.2066L88.5405 60.6006L82.1656 59.0985L67.2402 55.531L62.1302 54.2636H61.4218V54.6861L65.6718 58.8638L73.514 65.9049L83.2787 75.0114L83.7846 77.2646L82.5198 79.0483L81.2043 78.8606L72.6032 72.3827L69.264 69.4724L61.776 63.1354H61.2701V63.7926L62.9903 66.3274L72.1479 80.081L72.6032 84.3057L71.9455 85.667L69.5676 86.5119L66.9872 86.0425L61.5736 78.4851L56.0588 70.0357L51.6065 62.4313L51.0687 62.7708L48.419 91.0652L47.2048 92.5204L44.3715 93.6L41.9935 91.8162L40.7286 88.9059L41.9935 83.1322L43.5114 75.6217L44.7256 69.6602L45.8387 62.2435L46.5185 59.7659L46.4584 59.6001L45.9153 59.6914L40.3239 67.3601L31.824 78.8606L25.0949 86.0425L23.4759 86.6997L20.6932 85.2445L20.9462 82.6628L22.5146 80.3627L31.824 68.5336L37.44 61.1639L41.0595 56.9335L41.0243 56.3216L40.8245 56.3046L16.0891 72.4297L11.6874 72.993L9.76476 71.2092L10.0177 68.2989L10.9284 67.3601L18.3658 62.2435Z';
+
+function ClaudeSpark({ size = 12 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 94 94" fill="currentColor"
+         style={{ display: 'inline-block', verticalAlign: '-1px' }}>
+      <path d={__TWK_SPARK_PATH} />
+    </svg>
+  );
+}
+
+// Typewriter-cycles through `suggestions`. Clicking the field while a
+// suggestion is animating freezes it as ghost text; Tab accepts it into the
+// input. Enter posts miaoda:tweaks:chat (host drops the text into the chat
+// composer for the user to send). After the cycle the static placeholder
+// types in and "Ideas" appears — clicking asks for three more suggestions.
+function TweakSuggestionBar({
+  suggestions = [],
+  placeholder = 'Describe a tweak…',
+  ideasPrompt = 'Suggest three more tweak ideas for this design and update the suggestions on TweakSuggestionBar.',
+}) {
+  const [val, setVal] = React.useState('');
+  const [ghost, setGhost] = React.useState('');
+  const [focused, setFocused] = React.useState(false);
+  const inputRef = React.useRef(null);
+  const tw = useTwkTypewriter(suggestions, { placeholder, enabled: !val && !ghost && !focused });
+
+  const freeze = () => {
+    tw.markPlayed();
+    if (val || ghost) return;
+    const target = !tw.done ? suggestions[tw.idx] : '';
+    if (target) setGhost(target);
+    inputRef.current?.focus();
+  };
+
+  const submit = () => {
+    const v = (val || ghost).trim();
+    if (!v) return;
+    __twkSendChat(v);
+    setVal('');
+    setGhost('');
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Tab' && ghost && !val) {
+      e.preventDefault();
+      setVal(ghost);
+      setGhost('');
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      submit();
+    } else if (e.key === 'Escape') {
+      setGhost('');
+    }
+  };
+
+  const requestIdeas = () => __twkSendChat(ideasPrompt);
+
+  const showAnim = !val && !ghost && !focused && !tw.done;
+  const showStatic = !val && !ghost && !focused && tw.done;
+
+  return (
+    <div className="twk-sugg" onMouseDown={freeze}>
+      <div className="twk-sugg-field">
+        <input
+          ref={inputRef}
+          value={val}
+          placeholder={focused && !ghost ? placeholder : ''}
+          onChange={(e) => { setVal(e.target.value); setGhost(''); }}
+          onFocus={() => { setFocused(true); tw.markPlayed(); }}
+          onBlur={() => { setFocused(false); if (!val) setGhost(''); }}
+          onKeyDown={onKeyDown}
+        />
+        {showAnim && (
+          <div className="twk-sugg-ghost">
+            {tw.text}<span className="twk-sugg-caret" />
+          </div>
+        )}
+        {showStatic && (
+          <div className="twk-sugg-ghost">
+            {tw.tail}{tw.tail.length < placeholder.length && <span className="twk-sugg-caret" />}
+          </div>
+        )}
+        {ghost && !val && (
+          <div className="twk-sugg-ghost hint">{ghost}</div>
+        )}
+      </div>
+      {val || ghost ? (
+        <button className="twk-sugg-send"
+                onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                onClick={submit}>
+          Add
+        </button>
+      ) : tw.done && !focused ? (
+        <button className="twk-sugg-ideas"
+                onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                onClick={requestIdeas}>
+          Ideas <ClaudeSpark />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+// Minimal type→pause→erase cycler. Plays once per unique `items` content per
+// session — a reload from a tweak-value write skips straight to done; a new
+// suggestion set (after "Ideas") gets a fresh animation.
+function useTwkTypewriter(items, { placeholder, typeMs = 35, eraseMs = 22, pauseMs = 1800, enabled = true } = {}) {
+  const key = React.useMemo(() => '__twk_played:' + JSON.stringify(items), [items.join('\n')]);
+  const played = () => { try { return sessionStorage.getItem(key) === '1'; } catch { return false; } };
+
+  const [text, setText] = React.useState('');
+  const [tail, setTail] = React.useState(() => (items.length === 0 || played() ? placeholder : ''));
+  const [idx, setIdx] = React.useState(0);
+  const [done, setDone] = React.useState(() => items.length === 0 || played());
+  const phase = React.useRef('type');
+  const n = React.useRef(0);
+
+  const markPlayed = React.useCallback(() => {
+    try { sessionStorage.setItem(key, '1'); } catch {}
+    setDone(true);
+  }, [key]);
+
+  React.useEffect(() => {
+    const skip = items.length === 0 || played();
+    setText(''); setIdx(0);
+    setDone(skip);
+    setTail(skip ? placeholder : '');
+    phase.current = 'type'; n.current = 0;
+  }, [key]);
+
+  React.useEffect(() => {
+    if (done || !enabled) return;
+    const item = items[idx] ?? '';
+    let t;
+    const tick = () => {
+      if (phase.current === 'type') {
+        n.current++;
+        setText(item.slice(0, n.current));
+        if (n.current >= item.length) { phase.current = 'pause'; t = setTimeout(tick, pauseMs); }
+        else t = setTimeout(tick, typeMs + Math.random() * 20);
+      } else if (phase.current === 'pause') {
+        phase.current = 'erase'; t = setTimeout(tick, eraseMs);
+      } else {
+        n.current--;
+        setText(item.slice(0, n.current));
+        if (n.current <= 0) {
+          if (idx === items.length - 1) { markPlayed(); return; }
+          phase.current = 'type'; setIdx((i) => i + 1);
+        } else t = setTimeout(tick, eraseMs);
+      }
+    };
+    phase.current = 'type'; n.current = 0; setText('');
+    t = setTimeout(tick, 400);
+    return () => clearTimeout(t);
+  }, [idx, done, key, enabled, typeMs, eraseMs, pauseMs]);
+
+  React.useEffect(() => {
+    if (!done || tail === placeholder) return;
+    let i = 0;
+    const t = setInterval(() => {
+      i++; setTail(placeholder.slice(0, i));
+      if (i >= placeholder.length) clearInterval(t);
+    }, 28);
+    return () => clearInterval(t);
+  }, [done, placeholder]);
+
+  return { text, tail, idx, done, markPlayed };
+}
+
+Object.assign(window, { TweakSuggestionBar });
+
+</script>
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "scanSpeed": "标准",
+  "heatStyle": "热力叠加",
+  "themeHue": "粉主"
+}/*EDITMODE-END*/;
+window.TWEAK_DEFAULTS = TWEAK_DEFAULTS;
+</script>
+<script type="text/babel">
+/* ============ 数据层：图片、笔记、核验规则（演示数据） ============ */
+const IMG = {
+  heroFront: "assets/images/hero-front.png",
+  heroSide: "assets/images/hero-close.png",
+  effect: "assets/images/sample-portrait.png",
+  product: "assets/images/sample-serum.png",
+};
+
+const POST = {
+  title: "烂脸自救实录｜这支精华 7 天白两个色号，痘痘也全瘪了",
+  body: "姐妹们谁懂啊！烂脸期被这支精华救回来了。7 天白两个色号，肉眼可见的提亮；痘痘三天就瘪，痘印也跟着淡了，直接封神！查过成分表，第一位就是美白成分，纯纯猛药。敏感肌闭眼入，干皮亲妈，油皮也不闷。最后一波活动价，冲就完事了！",
+  tags: ["#精华推荐", "#烂脸自救", "#变美日记", "#7天白两个色号"],
+  blogger: { name: "小桃桃爱美妆", fans: "12.4 万 粉丝", initial: "桃" },
+  product: { name: "巴黎欧莱雅 复颜玻尿酸水光精华 30ml", price: "¥ 319", link: "商品链接" },
+  meta: "编辑于 2026-09-18 · IP 广东 · 小眼睛 8.2 万 · 种草指数 92%",
+};
+
+/* 图片核验：篡改热区 */
+const SCAN_STATUSES = ["频域纹理熵分析中", "噪声一致性检验中", "边缘梯度检测中", "光照一致性评估中"];
+const ZONES = [
+  { label: "左脸颊 · 磨皮处理", x: 16, y: 34, w: 28, h: 24, conf: 93, basis: "该区域频域纹理熵低于面部均值 4.7σ，毛孔结构整体缺失，符合重度磨皮特征。" },
+  { label: "下颌区域 · 色彩溢出", x: 38, y: 62, w: 28, h: 18, conf: 87, basis: "饱和度通道出现边界溢出，色彩过渡带像素跳变异常，疑似局部调色。" },
+  { label: "右颧骨 · 局部提亮", x: 58, y: 28, w: 24, h: 20, conf: 81, basis: "亮度梯度不连续，噪声分布由泊松态转为高斯混合态，疑似液化提亮。" },
+];
+const SIM_ZONES = [
+  { label: "模拟热区 A · 纹理异常", x: 20, y: 24, w: 27, h: 23, conf: 88, basis: "演示模式：上传图片的热区为随机模拟结果，仅用于流程演示。" },
+  { label: "模拟热区 B · 亮度断层", x: 47, y: 54, w: 25, h: 20, conf: 74, basis: "演示模式：上传图片的热区为随机模拟结果，仅用于流程演示。" },
+];
+const IMAGE_SCORE = 38;
+
+/* 文案核验：宣称 vs 官方信息（conf = 核验置信度，供 VerifyCard 使用） */
+const CLAIMS = [
+  { claim: "7 天白两个色号", official: "备案功效仅「保湿」，未取得美白类特殊化妆品资质", status: "bad", statusText: "严重夸大", conf: 18 },
+  { claim: "痘痘三天就瘪，痘印也淡了", official: "非祛痘类产品，备案功效不含祛痘与淡印", status: "bad", statusText: "无依据", conf: 12 },
+  { claim: "成分表第一位就是美白成分", official: "备案成分表第一位为「水」，透明质酸钠列第 9 位", status: "bad", statusText: "与事实不符", conf: 15 },
+  { claim: "敏感肌闭眼入", official: "配方含变性酒精与香精，官方提示敏感肌先局部试用", status: "warn", statusText: "风险误导", conf: 58 },
+  { claim: "上脸巨补水，干皮亲妈", official: "备案功效：保湿补水，含透明质酸钠", status: "ok", statusText: "基本属实", conf: 92 },
+];
+
+const AI_METRICS = [
+  { label: "网感模板词密度", value: 87, note: "「绝了 / 闭眼入 / 亲妈 / 封神」等高频营销词" },
+  { label: "情感极化指数", value: 92, note: "全篇无负面或中性描述" },
+  { label: "三段式结构匹配", value: 85, note: "痛点—转折—逆袭模板高度吻合" },
+  { label: "感叹号密度", value: 76, note: "为人工笔记均值的 4.2 倍" },
+];
+const CLAIM_SCORE = 35;
+const AI_PROB = 78;
+
+/* VerifyCard mock 数据接口：{ title, status, confidence, evidence } */
+const MOCK_RESULTS = {
+  image: {
+    title: "图片核验 · 博主变美效果图",
+    status: "suspicious",
+    confidence: 87,
+    evidence: [
+      "检出 3 处篡改热区：左脸颊重度磨皮 / 下颌色彩溢出 / 右颧骨液化提亮",
+      "频域纹理熵低于面部均值 4.7σ，毛孔结构整体缺失",
+      "报告编号 TG-IMG-0921 · 检测依据已存证",
+    ],
+  },
+  uploadedImage: {
+    title: "图片核验 · 用户上传图片（演示）",
+    status: "suspicious",
+    confidence: 81,
+    evidence: [
+      "演示模式：上传图片的热区为随机模拟结果，仅用于流程演示",
+      "完整取证链路（熵分析 / 噪声检验 / 梯度检测）与博主图一致",
+    ],
+  },
+  text: {
+    title: "文案核验 · 宣称比对与 AI 痕迹综合",
+    status: "suspicious",
+    confidence: 78,
+    evidence: [
+      "5 项功效宣称中 3 项与欧莱雅备案信息不符，构成虚假夸大；1 项风险误导",
+      "AI 生成 / 营销代写概率 78%，模板化特征高于人工笔记基线 3σ",
+      "报告编号 TG-TXT-0921 · 检测依据已存证",
+    ],
+  },
+};
+
+/* 综合权重：六边形维度 */
+const RADAR = [
+  { label: "图片真实性", value: 42, weight: 25 },
+  { label: "宣称真实性", value: 35, weight: 20 },
+  { label: "成分一致性", value: 30, weight: 15 },
+  { label: "AI 痕迹得分", value: 22, weight: 15 },
+  { label: "信息可溯源", value: 55, weight: 15 },
+  { label: "博主信用", value: 61, weight: 10 },
+];
+const TOTAL_SCORE = 40;
+
+/* 适配测试 */
+const QUIZ = [
+  { key: "skin", q: "你的肤质更接近哪一种？", opts: ["干性", "油性", "混合性", "敏感性"] },
+  { key: "concern", q: "目前最困扰你的肌肤问题是？", opts: ["反复爆痘", "暗沉发黄", "干燥起皮", "细纹初现"] },
+  { key: "wish", q: "你最想达到的效果是？", opts: ["美白提亮", "祛痘修护", "深层保湿", "紧致抗老"] },
+];
+const SKIN_RULES = {
+  "干性": { s: 20, st: "ok", note: "质地滋润，干皮友好" },
+  "油性": { s: 6, st: "warn", note: "质地偏润，油皮夏季慎用" },
+  "混合性": { s: 12, st: "ok", note: "T 区或略觉厚重，可局部使用" },
+  "敏感性": { s: 4, st: "warn", note: "含微量酒精，建议先局部试用" },
+};
+const CONCERN_RULES = {
+  "干燥起皮": { s: 30, st: "ok", note: "强项：产品主打补水保湿" },
+  "细纹初现": { s: 18, st: "ok", note: "玻尿酸可辅助淡化干纹" },
+  "暗沉发黄": { s: 8, st: "warn", note: "仅能通过补水间接提亮" },
+  "反复爆痘": { s: 2, st: "bad", note: "无祛痘功效，不建议替代祛痘产品" },
+};
+const WISH_RULES = {
+  "深层保湿": { s: 30, st: "ok", note: "与产品核心功效直接匹配" },
+  "紧致抗老": { s: 12, st: "warn", note: "仅改善干纹，无抗老功效备案" },
+  "美白提亮": { s: 4, st: "bad", note: "产品无美白特证" },
+  "祛痘修护": { s: 2, st: "bad", note: "产品无祛痘功效备案" },
+};
+const PRODUCT_TAGS = [
+  { t: "深层保湿", tone: "blue" },
+  { t: "屏障修护", tone: "blue" },
+  { t: "改善干纹", tone: "blue" },
+  { t: "温和配方", tone: "blue" },
+  { t: "含微量酒精", tone: "warn" },
+  { t: "无美白功效", tone: "bad" },
+  { t: "无祛痘功效", tone: "bad" },
+];
+
+window.DATA = {
+  IMG, POST, SCAN_STATUSES, ZONES, SIM_ZONES, IMAGE_SCORE,
+  CLAIMS, AI_METRICS, CLAIM_SCORE, AI_PROB, MOCK_RESULTS, RADAR, TOTAL_SCORE,
+  QUIZ, SKIN_RULES, CONCERN_RULES, WISH_RULES, PRODUCT_TAGS,
+};
+
+</script>
+<script type="text/babel">
+/* ============ 通用 UI 原子组件 ============ */
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+function Btn({ children, onClick, variant = "primary", disabled, className = "" }) {
+  return (
+    <button
+      className={"btn btn-" + variant + " " + className}
+      onClick={onClick}
+      disabled={!!disabled}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+}
+
+function Chip({ children, tone, active, onClick, className = "" }) {
+  const cls = "chip" + (tone ? " chip-" + tone : "") + (onClick ? " chip-btn" : "") + (active ? " chip-active" : "") + " " + className;
+  return (
+    <span className={cls} onClick={onClick}>{children}</span>
+  );
+}
+
+function StatusIcon({ status }) {
+  if (status === "ok") {
+    return (
+      <svg viewBox="0 0 24 24" className="si si-ok" aria-hidden="true">
+        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.2 14.2-4-4 1.5-1.5 2.5 2.5 5.4-5.4 1.5 1.5z"></path>
+      </svg>
+    );
+  }
+  if (status === "warn") {
+    return (
+      <svg viewBox="0 0 24 24" className="si si-warn" aria-hidden="true">
+        <path d="M12 2 1 21h22L12 2zm1 14h-2v2h2v-2zm0-7h-2v5h2V9z"></path>
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" className="si si-bad" aria-hidden="true">
+      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.5 12.7-1.4 1.4L12 14l-2.1 2.1-1.4-1.4L10.6 12 8.5 9.9l1.4-1.4L12 10.6l2.1-2.1 1.4 1.4L13.4 12l2.1 2.1z"></path>
+    </svg>
+  );
+}
+
+function Panel({ title, tag, children, className = "" }) {
+  return (
+    <section className={"panel " + className}>
+      {(title || tag) && (
+        <div className="panel-head">
+          <div className="panel-title">{title}</div>
+          {tag && <div className="panel-tag">{tag}</div>}
+        </div>
+      )}
+      {children}
+    </section>
+  );
+}
+
+function MeterRow({ label, value, tone = "acc", suffix = "/100" }) {
+  const [go, setGo] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setGo(true), 60);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div className="meter">
+      <div className="meter-top">
+        <span>{label}</span>
+        <span className="meter-val">{value}<span style={{ color: "var(--mut)", fontSize: 11 }}> {suffix}</span></span>
+      </div>
+      <div className="meter-bar">
+        <div className={"meter-fill tone-" + tone} style={{ width: go ? value + "%" : "0%" }}></div>
+      </div>
+    </div>
+  );
+}
+
+function CountUp({ value, duration = 1100, className = "" }) {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    let raf;
+    const t0 = performance.now();
+    const tick = (t) => {
+      const k = Math.min(1, (t - t0) / duration);
+      const e = 1 - Math.pow(1 - k, 3);
+      setV(Math.round(value * e));
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+  return <span className={className}>{v}</span>;
+}
+
+function PhaseBar({ current, onJump }) {
+  const phases = ["笔记浏览", "图片核验", "文案核验", "综合评分", "适配测试"];
+  return (
+    <nav className="phasebar" aria-label="核验流程">
+      {phases.map((ph, i) => (
+        <div
+          key={ph}
+          className={"ph" + (i === current ? " ph-cur" : "") + (i < current ? " ph-done" : "") + (onJump ? " ph-jump" : "")}
+          onClick={() => onJump && onJump(i)}
+          title={onJump ? "点击跳转到该步骤" : undefined}
+        >
+          <span className="ph-num">{String(i + 1).padStart(2, "0")}</span>
+          <span className="ph-name">{ph}</span>
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+window.UI = { Btn, Chip, StatusIcon, Panel, MeterRow, CountUp, PhaseBar };
+
+</script>
+<script type="text/babel">
+/* ============ VerifyCard：核验结果卡片（React + Tailwind + Framer Motion） ============
+ * Props（mock 数据接口）：
+ *   - title:       string            卡片标题（核验对象）
+ *   - status:      "pass" | "suspicious"  核验状态，决定 badge 与光晕颜色
+ *   - confidence:  number (0-100)    置信度
+ *   - evidence:    string[]          证据条目
+ *   - index:       number            入场 stagger 序号（60ms/项）
+ *   - compact:     bool              紧凑模式（列表场景）
+ */
+const { useState, useRef } = React;
+const M = window.Motion;
+/* CDN 加载失败的降级：剥离动画 props 的纯 div */
+const mDiv = M
+  ? M.motion.div
+  : function (props) {
+      const rest = Object.assign({}, props);
+      ["initial", "animate", "transition", "whileHover", "variants"].forEach((k) => delete rest[k]);
+      return React.createElement("div", rest);
+    };
+
+function VerifyCard({ title, status = "suspicious", confidence = 0, evidence = [], index = 0, compact = false }) {
+  const [hover, setHover] = useState(false);
+  const innerRef = useRef(null);
+
+  const isPass = status === "pass";
+  const glowColor = isPass ? "rgba(0,71,253,0.35)" : "rgba(243,17,180,0.3)";
+  const glowRadius = isPass ? 300 : 250;
+
+  /* 光标跟随：写入 CSS 变量，避免逐帧重渲染 */
+  const onMove = (e) => {
+    const el = innerRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    el.style.setProperty("--mx", (e.clientX - r.left) + "px");
+    el.style.setProperty("--my", (e.clientY - r.top) + "px");
+  };
+
+  const badgeCls = isPass
+    ? "bg-[rgba(0,71,253,0.25)] text-[#A8C0FF] border-[rgba(0,71,253,0.6)]"
+    : "bg-[rgba(243,17,180,0.25)] text-[#FF9DCE] border-[rgba(243,17,180,0.6)]";
+  const barCls = isPass
+    ? "bg-gradient-to-r from-[#0047FD] to-[#6E9BFF]"
+    : "bg-gradient-to-r from-[#5A1FD0] to-[#F31199]";
+  const numColor = isPass ? "text-[#A8C0FF]" : "text-[#FF9DCE]";
+
+  return (
+    <mDiv
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 260, damping: 24, delay: index * 0.06 }}
+      whileHover={{ scale: 1.02 }}
+      onMouseMove={onMove}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="relative rounded-[24px] p-[1px]"
+      style={{ background: "linear-gradient(135deg, rgba(90,31,208,0.95), rgba(243,17,180,0.75))" }}
+      data-comment-anchor="verify-card"
+    >
+      <div
+        ref={innerRef}
+        className="relative overflow-hidden rounded-[23px] bg-[rgba(90,31,208,0.3)]"
+        style={{ "--mx": "50%", "--my": "50%" }}
+      >
+        {/* 跟随光标的径向渐变光晕：pass→蓝 300px / suspicious→粉 250px，离开 300ms 淡出 */}
+        <div
+          className="pointer-events-none absolute inset-0 transition-opacity duration-300 ease-out"
+          style={{
+            opacity: hover ? 1 : 0,
+            background:
+              "radial-gradient(circle " + glowRadius + "px at var(--mx) var(--my), " + glowColor + ", transparent 70%)",
+          }}
+        ></div>
+
+        <div className={"relative " + (compact ? "p-5 pt-11" : "p-6 pt-14")}>
+          {/* 左上角状态 badge · 4px 圆角 */}
+          <span
+            className={"absolute left-5 top-5 rounded-[4px] border px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.12em] " + badgeCls}
+          >
+            {isPass ? "核验通过" : "核验存疑"}
+          </span>
+
+          <h3 className={"font-sans font-extrabold tracking-[-0.02em] " + (compact ? "text-[15px]" : "text-lg")}>
+            {title}
+          </h3>
+
+          <div className="mt-3 flex items-center gap-3">
+            <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-[#9A93B8]">置信度</span>
+            <span className={"font-mono text-sm " + numColor}>{confidence}%</span>
+            <div className="h-1.5 flex-1 overflow-hidden rounded-[4px] bg-white/10">
+              <div className={"h-full rounded-[4px] " + barCls} style={{ width: confidence + "%" }}></div>
+            </div>
+          </div>
+
+          {evidence.length > 0 && (
+            <ul className={"flex flex-col " + (compact ? "mt-2.5 gap-1.5" : "mt-4 gap-2")}>
+              {evidence.map((ev, i) => (
+                <li key={i} className="flex gap-2.5 text-[12.5px] leading-[1.6] text-[#C9C4DD]">
+                  <span className="font-mono text-[10px] text-[#FF7AC6]">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span>{ev}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </mDiv>
+  );
+}
+
+window.VerifyCard = VerifyCard;
+
+</script>
+<script type="text/babel">
+/* ============ 首屏：3D 场景 + 标题碎片化 + 手机屏幕锁定 ============ */
+const { useState, useRef, useEffect, useMemo } = React;
+const { IMG, POST } = window.DATA;
+
+function smooth(x, a, b) {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
+function HeroScene({ onEnter, onDirectAi, onDirectImage }) {
+  const [p, setP] = useState(0);
+  const prog = useRef(0);
+  const target = useRef(0);
+
+  useEffect(() => {
+    const clamp01 = (v) => Math.min(1, Math.max(0, v));
+    const W = () => window.innerWidth;
+    const onMove = (e) => { target.current = clamp01((e.clientX - W() * 0.12) / (W() * 0.72)); };
+    let tSX = 0, tP = 0, dragging = false;
+    const onTS = (e) => { dragging = true; tSX = e.touches[0].clientX; tP = target.current; };
+    const onTM = (e) => {
+      if (!dragging) return;
+      target.current = clamp01(tP + (e.touches[0].clientX - tSX) / (W() * 0.72));
+    };
+    const onTE = () => { dragging = false; };
+    let raf;
+    const tick = () => {
+      prog.current += (target.current - prog.current) * 0.07;
+      setP(prog.current);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("touchstart", onTS, { passive: true });
+    window.addEventListener("touchmove", onTM, { passive: true });
+    window.addEventListener("touchend", onTE);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("touchstart", onTS);
+      window.removeEventListener("touchmove", onTM);
+      window.removeEventListener("touchend", onTE);
+    };
+  }, []);
+
+  const letters = useMemo(() => {
+    const words = ["TRUST", "GUARDIAN"];
+    const arr = [];
+    words.forEach((w) => {
+      [...w].forEach((ch, ci) => arr.push({ ch, gap: ci === w.length - 1 }));
+    });
+    const n = arr.length;
+    arr.forEach((L, i) => {
+      const side = i < n / 2 ? -1 : 1;
+      L.dx = side * (60 + Math.random() * 150);
+      L.dy = (Math.random() - 0.4) * 170;
+      L.rot = (Math.random() - 0.5) * 170;
+      L.t0 = 0.1 + 0.5 * (i / n);
+    });
+    return arr;
+  }, []);
+
+  const letterStyle = (L) => {
+    const local = Math.min(1, Math.max(0, (p - L.t0) / (0.95 - L.t0)));
+    return {
+      opacity: 1 - local,
+      transform: "translate(" + local * L.dx + "px," + local * L.dy + "px) rotate(" + local * L.rot + "deg) scale(" + (1 - local * 0.35) + ")",
+      filter: local > 0.01 ? "blur(" + local * 10 + "px)" : "none",
+    };
+  };
+
+  const frontO = 1 - smooth(p, 0.12, 0.5);
+  const sideO = smooth(p, 0.3, 0.68);
+  const subO = 1 - smooth(p, 0.04, 0.3);
+  const hintO = 1 - smooth(p, 0.35, 0.6);
+  const hudO = smooth(p, 0.55, 0.8);
+  const phoneO = smooth(p, 0.5, 0.8);
+
+  return (
+    <div className="hero">
+      <div
+        className="hero-3d"
+        style={{
+          transform:
+            "translate(" + -p * 9 + "vw," + -p * 6 + "vh) scale(" + (1 + p * 0.55) +
+            ") rotateY(" + -p * 9 + "deg) rotateX(" + p * 3 + "deg)",
+        }}
+      >
+        <img className="hero-img" src={IMG.heroFront} alt="" style={{ opacity: frontO }}></img>
+        <img className="hero-img" src={IMG.heroSide} alt="" style={{ opacity: sideO }}></img>
+      </div>
+
+      <div className="hero-fx">
+        <div className="orb orb-p"></div>
+        <div className="orb orb-b"></div>
+      </div>
+      <div className="hero-vignette"></div>
+
+      <div className="hero-sys">TG-09 <i>ONLINE</i></div>
+      <div className="hero-hud" style={{ opacity: hudO }}>TARGET LOCK · 检测目标已锁定</div>
+
+      <div className="hero-title-wrap">
+        <h1 className="hero-title display" aria-label="TRUST GUARDIAN">
+          {letters.map((L, i) => (
+            <span key={i} className={"ht-l" + (L.gap ? " ht-gap" : "")} style={letterStyle(L)}>{L.ch}</span>
+          ))}
+        </h1>
+        <div className="hero-sub" style={{ opacity: subO }}>美妆种草 · 真实性核验系统</div>
+      </div>
+
+      <div className="hero-hint" style={{ opacity: hintO }}>
+        <span>向右移动鼠标 · 视角靠近手机屏幕</span>
+        <span className="arrow">→</span>
+      </div>
+
+      <div className="hero-feature-entries"><button type="button" className="hero-ai-entry" onClick={onDirectImage}>图片检测 <span aria-hidden="true">↗</span></button><button type="button" className="hero-ai-entry" onClick={onDirectAi}>AI 文本检测 <span aria-hidden="true">↗</span></button></div>
+
+      {phoneO > 0.02 && (
+        <div className="lockwrap" style={{ opacity: phoneO, transform: "scale(" + (0.74 + phoneO * 0.26) + ")" }}>
+          <span className="lock-corner lc-tl"></span>
+          <span className="lock-corner lc-tr"></span>
+          <span className="lock-corner lc-bl"></span>
+          <span className="lock-corner lc-br"></span>
+          <div
+            className="phone-card"
+            onClick={phoneO > 0.5 ? onEnter : undefined}
+            role="button"
+            aria-label="进入小红书种草笔记"
+          >
+            <div className="phone-notch"></div>
+            <div className="phone-mini">
+              <img src={IMG.effect} alt="小红书种草笔记配图"></img>
+              <div className="pmn-title">{POST.title}</div>
+              <div className="pmn-meta">小红书 · 种草笔记 · 博主 小桃桃爱美妆</div>
+            </div>
+            <div className="phone-cta">点击屏幕进入</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+window.HeroScene = HeroScene;
+
+</script>
+<script type="text/babel">
+/* ============ 种草笔记页 + 图片核验 ============ */
+const { useState, useEffect } = React;
+const { IMG, POST } = window.DATA;
+
+
+
+function NoteView({ onStartVerify, onTextVerify }) {
+  return (
+    <div className="post-grid screen-enter">
+      <div>
+        <div className="note-img-wrap" onClick={onStartVerify} role="button" tabIndex="0" onKeyDown={e => {if (e.key === "Enter" || e.key === " ") {e.preventDefault(); onStartVerify();}}} aria-label="点击图片进入独立图片检测">
+          <img src={IMG.effect} alt="博主变美效果图"></img>
+          <div className="note-img-badge">示例插画 · 可实际检测</div>
+          <div className="note-img-hover">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="10.5" cy="10.5" r="7"></circle>
+              <line x1="15.8" y1="15.8" x2="21.5" y2="21.5"></line>
+              <line x1="7" y1="10.5" x2="14" y2="10.5"></line>
+              <line x1="10.5" y1="7" x2="10.5" y2="14"></line>
+            </svg>
+            <span>点击图片 · 进入图片核验</span>
+          </div>
+        </div>
+        <div className="note-caption">图片检测与 AI 文本检测为独立功能，分别调用本地模型</div>
+      </div>
+
+      <article className="note-card">
+        <div className="nc-blogger">
+          <div className="nc-avatar">{POST.blogger.initial}</div>
+          <div>
+            <div className="nc-name">{POST.blogger.name}</div>
+            <div className="nc-fans">{POST.blogger.fans}</div>
+          </div>
+          <span className="nc-follow">关注</span>
+        </div>
+        <h1 className="note-title">{POST.title}</h1>
+        <p className="note-body">{POST.body}</p>
+        <div className="note-tags">
+          {POST.tags.map((t) => <span key={t}>{t}</span>)}
+        </div>
+        <div className="nc-product">
+          <img src={IMG.product} alt="产品图"></img>
+          <div>
+            <div className="ncp-name">{POST.product.name}</div>
+            <div className="ncp-meta"><span>{POST.product.price}</span><span>已售 2.3 万+</span></div>
+          </div>
+          <span className="ncp-link">{POST.product.link} →</span>
+        </div>
+        <div className="note-meta">{POST.meta}</div>
+        <button type="button" className="note-ai-entry" onClick={onTextVerify}>用本地 AI 检测这段文案 <span aria-hidden="true">↗</span></button>
+      </article>
+    </div>
+  );
+}
+
+function PostPage({ onPhase, onTextVerify, onImageVerify }) {
+  useEffect(() => { onPhase(0); }, [onPhase]);
+  return <div className="screen"><NoteView onStartVerify={onImageVerify} onTextVerify={onTextVerify} /></div>;
+}
+window.PostPage = PostPage;
+</script>
+<script type="text/babel">
+/* ============ 文案核验 + 综合权重评分（六边形雷达） ============ */
+const { useState, useEffect } = React;
+const { IMG, POST, CLAIMS, AI_METRICS, CLAIM_SCORE, AI_PROB, MOCK_RESULTS, RADAR, TOTAL_SCORE } = window.DATA;
+const { Btn, Panel, StatusIcon, MeterRow, CountUp } = window.UI;
+const { VerifyCard } = window;
+
+function AIMeter({ m, delay }) {
+  return (
+    <div className="aibar">
+      <MeterRow label={m.label} value={m.value} tone="warn" />
+      <div className="aibar-note">{m.note}</div>
+    </div>
+  );
+}
+
+function TextVerify({ onScore, stepDelay }) {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    if (step >= 4) return;
+    const t = setTimeout(() => setStep((s) => s + 1), stepDelay);
+    return () => clearTimeout(t);
+  }, [step, stepDelay]);
+
+  return (
+    <div className="screen tv screen-enter">
+      <Panel title="文案核验 · 原型演示" tag="TEXT PROTOTYPE" className="tv-head">
+        <p className="dim">
+          下方宣称依据和 AI 痕迹数值是原型示例，尚未连接备案数据库。真实文本来源检测请使用顶部“AI 文本检测”。
+        </p>
+        <div className="tv-product">
+          <img src={IMG.product} alt="产品图"></img>
+          <div>
+            <div className="ncp-name" style={{ color: "var(--ink)" }}>{POST.product.name}</div>
+            <div className="dim" style={{ fontSize: 12, marginTop: 3 }}>官方备案功效：保湿补水 · 修护屏障（示例数据库）</div>
+          </div>
+        </div>
+      </Panel>
+
+      <div className={"tv-step" + (step >= 1 ? " on" : "")}>
+        <div className="tv-step-h">
+          <span className="num">STEP 01</span><h3>宣称提取</h3>
+          <span className="sub">从文案中提取可核验的产品功效宣称</span>
+        </div>
+        <div className="chips">
+          {CLAIMS.map((c) => (
+            <span key={c.claim} className="chip chip-bad">“{c.claim}”</span>
+          ))}
+        </div>
+      </div>
+
+      <div className={"tv-step" + (step >= 2 ? " on" : "")}>
+        <div className="tv-step-h">
+          <span className="num">STEP 02</span><h3>官方信息比对</h3>
+          <span className="sub">宣称 vs 欧莱雅产品备案信息</span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {CLAIMS.map((c, i) => (
+            <VerifyCard
+              key={c.claim}
+              index={i}
+              compact
+              title={c.claim}
+              status={c.status === "ok" ? "pass" : "suspicious"}
+              confidence={c.conf}
+              evidence={["官方信息：" + c.official]}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className={"tv-step" + (step >= 3 ? " on" : "")}>
+        <div className="tv-step-h">
+          <span className="num">STEP 03</span><h3>AI 痕迹检测</h3>
+          <span className="sub">文本特征与模板化程度分析</span>
+        </div>
+        {AI_METRICS.map((m, i) => <AIMeter key={m.label} m={m} delay={i * 120} />)}
+        <div className="ai-concl">
+          <StatusIcon status="warn" />
+          <b>综合判定：AI 生成 / 营销代写概率</b>
+          <span className="mono">{AI_PROB}%</span>
+        </div>
+      </div>
+
+      {step >= 4 && (
+        <div className="tv-step on">
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <VerifyCard {...MOCK_RESULTS.text} index={0} />
+            <Panel title="测评依据与结果" tag="TEXT REPORT" className="tv-result">
+              <MeterRow label="宣称真实性（5 项中 1 项属实）" value={CLAIM_SCORE} tone="bad" />
+              <MeterRow label="AI 生成概率" value={AI_PROB} tone="warn" suffix="%" />
+              <div className="rv-list">
+                <div><i>01</i><span>3 项宣称与备案信息不符，构成虚假夸大；1 项存在风险误导。</span></div>
+                <div><i>02</i><span>文本模板化与情感极化特征显著，高于人工笔记基线 3σ。</span></div>
+                <div><i>03</i><span>依据已存档 · 报告编号 TG-TXT-0921。</span></div>
+              </div>
+              <div className="btn-row">
+                <Btn onClick={onScore}>进入综合权重打分 →</Btn>
+              </div>
+            </Panel>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- 六边形雷达 ---------- */
+function Radar({ k }) {
+  const cx = 190, cy = 168, R = 112;
+  const pt = (i, r) => {
+    const a = (-90 + i * 60) * Math.PI / 180;
+    return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+  };
+  const ring = (f) => RADAR.map((_, i) => pt(i, R * f).join(",")).join(" ");
+  const valPts = RADAR.map((d, i) => pt(i, R * (d.value / 100) * k).join(",")).join(" ");
+  return (
+    <svg viewBox="0 0 380 336" className="radar" role="img" aria-label="真实性指数六边形雷达图">
+      {[0.25, 0.5, 0.75, 1].map((f, i) => (
+        <polygon key={i} className="radar-ring" points={ring(f)}></polygon>
+      ))}
+      {RADAR.map((d, i) => {
+        const [x, y] = pt(i, R);
+        return <line key={i} className="radar-axis" x1={cx} y1={cy} x2={x} y2={y}></line>;
+      })}
+      <polygon className="radar-val" points={valPts}
+        style={{ fill: "var(--acc)", fillOpacity: 0.2, stroke: "var(--acc)", strokeWidth: 2 }}></polygon>
+      {RADAR.map((d, i) => {
+        const [x, y] = pt(i, R * (d.value / 100) * k);
+        return <circle key={i} cx={x} cy={y} r="4" style={{ fill: "#fff", stroke: "var(--acc)", strokeWidth: 2 }}></circle>;
+      })}
+      {RADAR.map((d, i) => {
+        const [x, y] = pt(i, R + 30);
+        return (
+          <text key={i} className="radar-lab" x={x} y={y + 4} textAnchor="middle">{d.label}</text>
+        );
+      })}
+      {RADAR.map((d, i) => {
+        const [x, y] = pt(i, R * (d.value / 100) * k);
+        const [lx, ly] = pt(i, R * (d.value / 100) * k + 18);
+        return <text key={i} className="radar-valnum" x={lx} y={ly + 3} textAnchor="middle">{Math.round(d.value * k)}</text>;
+      })}
+    </svg>
+  );
+}
+
+function ScoreScreen({ onContinue, onCompat }) {
+  const [k, setK] = useState(0);
+  useEffect(() => {
+    let raf;
+    const t0 = performance.now();
+    const tick = (t) => {
+      const x = Math.min(1, (t - t0) / 1200);
+      const e = 1 - Math.pow(1 - x, 3);
+      setK(e);
+      if (x < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div className="screen screen-enter">
+      <div className="score-grid">
+        <Panel title="综合评分 · 原型演示" tag="HEXAGON RADAR" className="score-radar">
+          <Radar k={k} />
+        </Panel>
+        <Panel>
+          <div className="score-label">NOTE AUTHENTICITY INDEX</div>
+          <p className="dim">此处为原型固定示例分数，不由 AI 文本检测计算。</p>
+          <div className="score-big">
+            <span className="num display"><CountUp value={TOTAL_SCORE} /></span>
+            <span className="den">/ 100</span>
+          </div>
+          <span className="verdict-badge vb-bad">
+            <StatusIcon status="bad" />真实性指数 · 高风险
+          </span>
+          <p className="score-desc">
+            该笔记存在明显的夸大宣传与图像篡改痕迹：5 项宣称中 3 项与官方备案不符，
+            图片检出 3 处篡改热区，文案 AI 生成概率 {AI_PROB}%。建议谨慎种草，
+            以官方备案功效为准。
+          </p>
+          <div className="wtable">
+            <div className="wt-row wt-head">
+              <span>维度</span><span>权重</span><span>得分</span><span>加权</span>
+            </div>
+            {RADAR.map((d) => (
+              <div className="wt-row" key={d.label}>
+                <span>{d.label}</span><span>{d.weight}%</span>
+                <span>{d.value}</span><span>{(d.value * d.weight / 100).toFixed(1)}</span>
+              </div>
+            ))}
+            <div className="wt-row wt-total">
+              <span>真实性指数</span><span></span><span></span><span>{TOTAL_SCORE}.0</span>
+            </div>
+          </div>
+          <div className="btn-row">
+            <Btn onClick={onContinue}>继续核验下一篇</Btn>
+            <Btn variant="blue" onClick={onCompat}>适配性测试 →</Btn>
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+window.TextVerify = TextVerify;
+window.ScoreScreen = ScoreScreen;
+
+</script>
+<script type="text/babel">
+/* ============ 适配性测试：肤质小测试 → 标签比对 → 适配评分 ============ */
+const { useState } = React;
+const { QUIZ, SKIN_RULES, CONCERN_RULES, WISH_RULES, PRODUCT_TAGS, POST } = window.DATA;
+const { Btn, Panel, Chip, StatusIcon } = window.UI;
+
+function Compat({ onBackPost }) {
+  const [stage, setStage] = useState("quiz");
+  const [ans, setAns] = useState({ skin: null, concern: null, wish: null });
+
+  const allAnswered = ans.skin && ans.concern && ans.wish;
+
+  if (stage === "quiz") {
+    return (
+      <div className="screen screen-enter" style={{ maxWidth: 760 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {QUIZ.map((q, qi) => (
+            <Panel key={q.key} className="q-card">
+              <div className="q-title">
+                <span className="num">Q{qi + 1}</span>{q.q}
+              </div>
+              <div className="q-opts">
+                {q.opts.map((o) => (
+                  <Chip
+                    key={o}
+                    active={ans[q.key] === o}
+                    onClick={() => setAns((a) => ({ ...a, [q.key]: o }))}
+                  >
+                    {o}
+                  </Chip>
+                ))}
+              </div>
+            </Panel>
+          ))}
+        </div>
+        <div className="btn-row">
+          <Btn disabled={!allAnswered} onClick={() => setStage("result")}>
+            {allAnswered ? "生成我的适配标签 →" : "请完成 3 道小测试"}
+          </Btn>
+        </div>
+      </div>
+    );
+  }
+
+  const skin = SKIN_RULES[ans.skin];
+  const concern = CONCERN_RULES[ans.concern];
+  const wish = WISH_RULES[ans.wish];
+  const score = Math.min(95, 10 + skin.s + concern.s + wish.s);
+  const band = score >= 75
+    ? { cls: "vb-ok", icon: "ok", text: "高度适配" }
+    : score >= 50
+      ? { cls: "vb-warn", icon: "warn", text: "中等适配" }
+      : { cls: "vb-bad", icon: "bad", text: "适配度低" };
+  const advice = wish.st === "ok"
+    ? "与产品核心功效高度匹配，可以纳入候选清单；建议先小样试用，确认耐受后再入手正装。"
+    : "你的核心诉求（" + ans.wish + "）与该产品功效不匹配，建议谨慎种草，优先选择具备对应备案功效的产品。";
+
+  return (
+    <div className="screen screen-enter" style={{ maxWidth: 860 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Panel className="cp-user">
+        <div className="cp-label">你的肌肤标签</div>
+        <div className="chips">
+          <Chip tone="blue">肤质 · {ans.skin}</Chip>
+          <Chip tone="blue">困扰 · {ans.concern}</Chip>
+          <Chip tone="blue">期望 · {ans.wish}</Chip>
+        </div>
+      </Panel>
+
+      <Panel className="cp-product">
+        <div className="cp-label">产品信息标签 · {POST.product.name}</div>
+        <div className="chips">
+          {PRODUCT_TAGS.map((pt) => (
+            <Chip key={pt.t} tone={pt.tone === "blue" ? "blue" : pt.tone}>{pt.t}</Chip>
+          ))}
+        </div>
+      </Panel>
+
+      <Panel>
+        <div className="cp-label">标签比对</div>
+        <div className="cp-dim">
+          <b>肤质匹配</b><StatusIcon status={skin.st} />
+          <span className="note">{ans.skin} · {skin.note}</span>
+          <span className="pts">+{skin.s}</span>
+        </div>
+        <div className="cp-dim">
+          <b>困扰应对</b><StatusIcon status={concern.st} />
+          <span className="note">{ans.concern} · {concern.note}</span>
+          <span className="pts">+{concern.s}</span>
+        </div>
+        <div className="cp-dim">
+          <b>功效匹配</b><StatusIcon status={wish.st} />
+          <span className="note">{ans.wish} · {wish.note}</span>
+          <span className="pts">+{wish.s}</span>
+        </div>
+
+        <div className="cp-score">
+          <div>
+            <div className="score-label">COMPATIBILITY</div>
+            <div>
+              <span className="num display">{score}</span>
+              <span className="den"> / 100</span>
+            </div>
+          </div>
+          <div className="cp-score-right">
+            <span className={"verdict-badge " + band.cls}>
+              <StatusIcon status={band.icon} />适配性评分 · {band.text}
+            </span>
+            <p className="cp-advice">{advice}</p>
+          </div>
+        </div>
+
+        <div className="btn-row">
+          <Btn variant="ghost" onClick={() => { setAns({ skin: null, concern: null, wish: null }); setStage("quiz"); }}>
+            重新测试
+          </Btn>
+          <Btn onClick={onBackPost}>返回种草笔记 · 继续核验</Btn>
+        </div>
+      </Panel>
+      </div>
+    </div>
+  );
+}
+
+window.Compat = Compat;
+
+</script>
+<script src="js/features/text-origin/api.js"></script>
+<script type="text/babel">
+/* Isolated real-model feature. Other prototype pages continue to use demo data. */
+const { useState, useEffect, useRef } = React;
+const { POST } = window.DATA;
+const { Btn } = window.UI;
+
+const TEXT_SAMPLES = [
+  { name: "笔记原文", text: POST.body },
+  { name: "日常使用感受", text: "这瓶面霜用了快两周。我的脸颊偏干，晚上薄涂一层，第二天摸起来会软一点。鼻子周围涂多了还是有些油，所以现在只用半颗黄豆那么多。味道不算浓，不过我更喜欢没有香味的。暂时没看出别的变化，准备把这一瓶用完再决定要不要回购。" },
+  { name: "种草分享文案", text: "换季护肤也能轻松拿捏！这款精华质地轻盈，一抹即融，给肌肤恰到好处的水润呵护。早上搭配防晒，晚上叠加面霜，简单两步就能开启精致护肤时刻。从日常通勤到周末约会，让每一次出门都多一点从容。正在寻找清爽保湿搭子的你，不妨了解一下。" },
+];
+
+function AiOriginPage({ onBack, onDemo }) {
+  const [text, setText] = useState(POST.body);
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [modelReady, setModelReady] = useState(null);
+  const active = useRef(null);
+  const resultRef = useRef(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    window.TextOriginAPI.health(controller.signal)
+      .then((value) => setModelReady(!!value.ready))
+      .catch(() => { if (!controller.signal.aborted) setModelReady(false); });
+    return () => { controller.abort(); if (active.current) active.current.abort(); };
+  }, []);
+
+  function replaceText(value) {
+    if (active.current) active.current.abort();
+    active.current = null;
+    setBusy(false);
+    setText(value);
+    setResult(null);
+    setError("");
+  }
+
+  async function run() {
+    const input = text.trim();
+    if (!input) { setError("先输入一段文案。"); return; }
+    if (input.length > 5000) { setError("最多输入 5000 字。"); return; }
+    if (active.current) active.current.abort();
+    const controller = new AbortController();
+    active.current = controller;
+    setBusy(true);
+    setResult(null);
+    setError("");
+    try {
+      const value = await window.TextOriginAPI.detect(input, controller.signal);
+      if (active.current !== controller) return;
+      setResult(value);
+      setModelReady(true);
+      requestAnimationFrame(() => resultRef.current && resultRef.current.focus());
+    } catch (failure) {
+      if (controller.signal.aborted || active.current !== controller) return;
+      setError(failure.message || "检测失败，请重试。");
+      setModelReady(false);
+    } finally {
+      if (active.current === controller) { active.current = null; setBusy(false); }
+    }
+  }
+
+  const ai = result ? Math.round(result.scores.ai * 100) : 0;
+  const human = result ? Math.round(result.scores.human * 100) : 0;
+  const winner = result && (result.label === "ai" ? "更接近 AI 生成" : "更接近人工撰写");
+
+  return (
+    <div className="screen ai-origin screen-enter">
+      <div className="ai-eyebrow"><span className="ai-eyebrow-line"></span> TEXT ORIGIN · 本地模型</div>
+      <div className="ai-heading">
+        <div>
+          <h1>美妆文案 <em>AI 检测</em></h1>
+          <p>粘贴任意种草文案，查看模型更倾向哪一类。</p>
+        </div>
+        <div className={"ai-service " + (modelReady === true ? "is-ready" : "") } role="status">
+          <span className="ai-service-dot"></span>
+          {modelReady === null ? "正在连接模型" : modelReady ? "本地模型已就绪" : "模型暂不可用"}
+        </div>
+      </div>
+
+      <div className="ai-workspace">
+        <section className="ai-input-pane" aria-labelledby="ai-input-title">
+          <div className="ai-pane-head">
+            <div><span className="ai-index">01 / INPUT</span><h2 id="ai-input-title">待检测文案</h2></div>
+            <span className="ai-counter">{text.length} / 5000 字</span>
+          </div>
+          <textarea
+            className="ai-editor"
+            aria-label="待检测的美妆文案"
+            placeholder="在这里输入或粘贴美妆文案…"
+            maxLength={5000}
+            value={text}
+            onChange={(event) => replaceText(event.target.value)}
+          />
+          <div className="ai-sample-row" aria-label="填入示例文案">
+            <span>试试示例</span>
+            {TEXT_SAMPLES.map((sample) => (
+              <button key={sample.name} type="button" className="ai-sample" onClick={() => replaceText(sample.text)}>{sample.name}</button>
+            ))}
+          </div>
+          <div className="ai-input-actions">
+            <button type="button" className="ai-clear" onClick={() => replaceText("")} disabled={!text}>清空</button>
+            <Btn onClick={run} disabled={busy || !text.trim()}>{busy ? "模型检测中…" : result ? "重新检测 →" : "开始检测 →"}</Btn>
+          </div>
+          {error && <p className="ai-error" role="alert">{error}</p>}
+        </section>
+
+        <aside className="ai-output-pane" ref={resultRef} tabIndex={-1} aria-live="polite">
+          <div className="ai-pane-head"><div><span className="ai-index">02 / RESULT</span><h2>检测结果</h2></div><span className="ai-local-tag">真实模型输出</span></div>
+          {!result && !busy && (
+            <div className="ai-empty">
+              <div className="ai-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
+              <strong>等待文案</strong>
+              <p>检测完成后，这里会显示两类模型分值。</p>
+            </div>
+          )}
+          {busy && <div className="ai-empty ai-loading"><div className="ai-orbit" aria-hidden="true"><span></span><span></span><span></span></div><strong>正在分析文本</strong><p>模型在本机运行，请稍候。</p></div>}
+          {result && (
+            <div className="ai-result-body">
+              <div className="ai-verdict-label">MODEL LEANING / 模型倾向</div>
+              <div className="ai-verdict">{winner}</div>
+              <div className="ai-divider"></div>
+              <div className="ai-bars">
+                <div className="ai-score-row"><div><span>AI 生成</span><b>{ai}%</b></div><div className="ai-track"><span className="ai-fill-ai" style={{ width: ai + "%" }}></span></div></div>
+                <div className="ai-score-row"><div><span>人工撰写</span><b>{human}%</b></div><div className="ai-track"><span className="ai-fill-human" style={{ width: human + "%" }}></span></div></div>
+              </div>
+              <p className="ai-score-note">以上是未经校准的模型分值，不能证明作者身份。</p>
+              {result.truncated && <p className="ai-truncate">长文本已截断：实际分析 {result.tokensUsed} / {result.totalTokens} 个词元。</p>}
+              <details className="ai-details"><summary>查看检测信息</summary><div>模型版本：{result.modelVersion}<br />用时：{result.elapsedMs} ms<br />分析词元：{result.tokensUsed} / {result.maxTokens}</div></details>
+            </div>
+          )}
+        </aside>
+      </div>
+      <div className="ai-after">
+        <p>只判断文本来源倾向；产品真假、功效和图片仍需另行核实。</p>
+        <div><button type="button" onClick={onBack}>← 返回种草笔记</button><button type="button" onClick={onDemo}>查看其余原型演示 →</button></div>
+      </div>
+    </div>
+  );
+}
+
+window.AiOriginPage = AiOriginPage;
+
+</script>
+<script src="js/features/image-authenticity/api.js"></script>
+<script type="text/babel">
+/* Real image inference UI. Visual layers always come from this image's model run. */
+(function () {
+  const {useState, useEffect, useRef} = React;
+  const API = window.ImageAuthenticityAPI;
+  const VIEWS = [{id: "original", label: "原图"}, {id: "overlay", label: "热力叠加"},
+    {id: "heatmap", label: "响应图"}, {id: "binary_mask", label: "区域掩膜"}, {id: "ela", label: "误差图"}];
+  const VERDICTS = {
+    likely_real: {title: "未发现强异常信号", tag: "NO STRONG SIGNAL", tone: "quiet"},
+    ai_generated: {title: "存在 AI 生成线索", tag: "GENERATION SIGNAL", tone: "pink"},
+    tampered: {title: "存在图片修改线索", tag: "MANIPULATION SIGNAL", tone: "pink"},
+    uncertain: {title: "需要进一步复核", tag: "REVIEW SUGGESTED", tone: "amber"},
+  };
+  const pct = n => (Number(n) * 100).toFixed(1);
+  const bytes = n => n >= 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + " MB" : Math.ceil(n / 1024) + " KB";
+
+  function ImageIcon({kind, ...props}) {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+      {kind === "upload" ? <><path d="M12 16V3m-5 5 5-5 5 5"/><path d="M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/></> :
+       kind === "scan" ? <><path d="M4 9V4h5m6 0h5v5m0 6v5h-5M9 20H4v-5M4 12h16"/><circle cx="12" cy="12" r="3"/></> :
+       kind === "image" ? <><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-5 5 6"/></> :
+       <><path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/></>}
+    </svg>;
+  }
+
+  function Score({label, value, threshold, blue}) {
+    return <div className={"image-score" + (blue ? " is-blue" : "")}>
+      <div><b>{label}</b><strong>{pct(value)}<small>%</small></strong></div>
+      <div className="image-score-track"><span style={{width: pct(value) + "%"}}/><i style={{left: pct(threshold) + "%"}} title={"判断阈值 " + pct(threshold) + "%"}/></div>
+      <p>模型分值 <span>判断阈值 {pct(threshold)}%</span></p>
+    </div>;
+  }
+
+  function ImageAuthenticityPage({onBack, initialSrc}) {
+    const [selected, setSelected] = useState({src: initialSrc || window.DATA.IMG.effect, name: "美妆示例插画", sample: true});
+    const [health, setHealth] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [result, setResult] = useState(null);
+    const [error, setError] = useState("");
+    const [notice, setNotice] = useState("");
+    const [view, setView] = useState("original");
+    const [opacity, setOpacity] = useState(45);
+    const [zoom, setZoom] = useState(1);
+    const [elapsed, setElapsed] = useState(0);
+    const [drag, setDrag] = useState(false);
+    const [imageError, setImageError] = useState(false);
+    const request = useRef(null);
+    const sequence = useRef(0);
+    const objectUrl = useRef(null);
+    const fileInput = useRef(null);
+    const started = useRef(0);
+    const resultHeading = useRef(null);
+    const canvas = useRef(null);
+
+    useEffect(() => {
+      let mounted = true;
+      const controller = new AbortController();
+      const refresh = () => API.health(controller.signal).then(h => {if (mounted) setHealth(h);}).catch(() => {if (mounted && !controller.signal.aborted) setHealth({ready: false});});
+      refresh();
+      const timer = setInterval(refresh, 15000);
+      return () => {mounted = false; controller.abort(); clearInterval(timer); sequence.current++; if (request.current) request.current.abort(); if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);};
+    }, []);
+
+    useEffect(() => {
+      if (!busy) return;
+      const tick = setInterval(() => setElapsed((performance.now() - started.current) / 1000), 250);
+      return () => clearInterval(tick);
+    }, [busy]);
+
+    useEffect(() => {if (canvas.current) {canvas.current.scrollLeft = 0; canvas.current.scrollTop = 0;}}, [zoom, view]);
+
+    function stopWaiting() {
+      sequence.current++;
+      if (request.current) request.current.abort();
+      setBusy(false);
+      setNotice("已停止等待。本地计算可能仍在完成，稍后可重新检测。");
+    }
+
+    function replace(next) {
+      sequence.current++;
+      if (request.current) request.current.abort();
+      if (objectUrl.current) {URL.revokeObjectURL(objectUrl.current); objectUrl.current = null;}
+      setSelected(next); setBusy(false); setResult(null); setError(""); setNotice(""); setImageError(false); setView("original"); setZoom(1);
+    }
+
+    function chooseFile(file) {
+      const validation = API.validate(file);
+      if (validation) {setError(validation); return;}
+      replace({file, src: "", name: file.name, sample: false});
+      const url = URL.createObjectURL(file);
+      objectUrl.current = url;
+      setSelected({file, src: url, name: file.name, sample: false});
+    }
+
+    async function detect() {
+      if (busy || (imageError && !result)) return;
+      const id = ++sequence.current;
+      if (request.current) request.current.abort();
+      const controller = new AbortController(); request.current = controller;
+      started.current = performance.now(); setElapsed(0); setBusy(true); setError(""); setNotice(""); setImageError(false); setResult(null); setView("original");
+      const timeout = setTimeout(() => controller.abort(), 120000);
+      try {
+        const file = selected.file || await API.sample(selected.src, controller.signal);
+        const validation = API.validate(file); if (validation) throw new Error(validation);
+        const data = await API.detect(file, controller.signal);
+        if (id !== sequence.current) return;
+        setResult(data); setView("overlay"); setZoom(1); setHealth(h => ({...h, ready: true}));
+        requestAnimationFrame(() => {if (resultHeading.current) resultHeading.current.focus({preventScroll: true});});
+      } catch (e) {
+        if (id !== sequence.current) return;
+        setError(e.name === "AbortError" ? "检测等待超时，请确认本地服务正常后重试。" : e.message);
+        API.health().then(setHealth).catch(() => setHealth({ready: false}));
+      } finally {clearTimeout(timeout); if (id === sequence.current) setBusy(false);}
+    }
+
+    const verdict = result && VERDICTS[result.verdict];
+    const original = result ? result.artifacts.original : selected.src;
+    const display = result && view !== "overlay" && view !== "original" ? result.artifacts[view] : original;
+    const descriptions = {
+      original: "原图视图。检测不会修改上传的文件。",
+      overlay: "彩色叠加显示模型响应。响应较高不等于已确认篡改。",
+      heatmap: "由蓝到红表示模型响应由低到高，不是原图颜色。",
+      binary_mask: "白色区域达到像素阈值 " + (result ? pct(result.thresholds.mask) : "90.0") + "%；用于定位参考。",
+      ela: "重新压缩后的误差可视化。亮处也可能来自纹理或压缩，不能单独证明修改。",
+    };
+
+    return <section className="screen image-auth screen-enter">
+      <div className="ai-eyebrow"><span className="ai-eyebrow-line"/>02 / IMAGE FORENSICS</div>
+      <div className="image-page-heading">
+        <div><h1>看清图片里的<em>线索</em></h1><p>图片生成与修改检测</p></div>
+        <div className={"ai-service" + (health && health.ready ? " is-ready" : "")}><span className="ai-service-dot"/>{health === null ? "正在连接本地模型" : health.ready ? "本地模型就绪 · " + (health.device === "cuda" ? "GPU" : "CPU") : "本地服务未就绪"}</div>
+      </div>
+
+      <div className="image-workspace">
+        <div className="image-task-pane">
+          <div className="image-toolbar">
+            <div className="image-file-name"><ImageIcon kind="image"/><span title={selected.name}>{selected.name}</span>{selected.file && <small>{bytes(selected.file.size)}</small>}</div>
+            <button type="button" className="image-subtle-btn" onClick={() => fileInput.current.click()} disabled={busy}><ImageIcon kind="upload"/>更换图片</button>
+            <input ref={fileInput} type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" hidden onChange={e => {if (e.target.files[0]) chooseFile(e.target.files[0]); e.target.value = "";}}/>
+          </div>
+          <div className="image-view-tabs" aria-label="图片检查视图">{VIEWS.map(item => <button type="button" key={item.id} aria-pressed={view === item.id} disabled={!result && item.id !== "original"} onClick={() => {setView(item.id); setImageError(false);}}>{item.label}</button>)}</div>
+          <div className={"image-canvas" + (drag ? " is-dragging" : "")} ref={canvas} tabIndex="0" aria-label="图片检查区，可滚动查看放大后的图片"
+            onDragOver={e => {e.preventDefault(); if (!busy) setDrag(true);}}
+            onDragLeave={e => {if (!e.currentTarget.contains(e.relatedTarget)) setDrag(false);}}
+            onDrop={e => {e.preventDefault(); setDrag(false); if (!busy && e.dataTransfer.files[0]) chooseFile(e.dataTransfer.files[0]);}}>
+            <div className="image-image-area" style={{width: zoom * 100 + "%", height: zoom * 100 + "%"}}>
+              <img className="image-source" src={display} alt={view === "original" || view === "overlay" ? "待检测图片" : VIEWS.find(v => v.id === view).label} draggable="false" onError={() => setImageError(true)} onLoad={() => setImageError(false)}/>
+              {result && view === "overlay" && <img className="image-response-layer" src={result.artifacts.heatmap} style={{opacity: opacity / 100}} alt="模型响应叠加层" draggable="false" onError={() => setImageError(true)}/>}
+            </div>
+            <span className="image-canvas-label">{busy ? "本地模型计算中" : selected.sample ? "示例图片" : "本机上传"}</span>
+            {drag && <div className="image-drop-cover"><ImageIcon kind="upload"/><b>松开以更换图片</b></div>}
+            {imageError && <div className="image-drop-cover"><b>图片无法显示</b><button type="button" className="image-subtle-btn" onClick={() => fileInput.current.click()}>重新选择图片</button></div>}
+          </div>
+          <div className="image-canvas-controls">
+            <div className="image-zoom"><button type="button" aria-label="缩小图片" disabled={zoom <= 1} onClick={() => setZoom(z => Math.max(1, z - .25))}>−</button><button type="button" aria-label="重置图片缩放" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button><button type="button" aria-label="放大图片" disabled={zoom >= 3} onClick={() => setZoom(z => Math.min(3, z + .25))}>＋</button></div>
+            {result && view === "overlay" ? <label className="image-opacity">叠加强度<input type="range" min="0" max="85" value={opacity} onChange={e => setOpacity(Number(e.target.value))}/><span>{opacity}%</span></label> : <span className="image-canvas-hint">{zoom > 1 ? "滚动查看局部 · 点击百分比重置" : "可拖入 JPG / PNG / WebP"}</span>}
+          </div>
+          <p className="image-view-description">{descriptions[view]}</p>
+          <div className="image-samples"><span>换个示例</span><button type="button" disabled={busy} onClick={() => replace({src: window.DATA.IMG.effect, name: "美妆示例插画", sample: true})}>美妆插画</button><button type="button" disabled={busy} onClick={() => replace({src: "assets/images/image-check-sample.png", name: "作者提供的模型测试图", sample: true})}>模型测试图</button><small>≤ 50 MB · ≤ 2000 万像素</small></div>
+        </div>
+
+        <aside className="image-result-pane" aria-busy={busy}>
+          <div className="image-rail-head"><span className="ai-index">LOCAL ANALYSIS</span><span>图片检测</span></div>
+          {!result ? <div className="image-intro">
+            <div className={"image-scan-emblem" + (busy ? " is-working" : "")}><ImageIcon kind="scan"/></div>
+            <h2>{busy ? "正在寻找图片线索" : "一次检测，两类线索"}</h2>
+            <p>{busy ? "使用本机模型处理这张图片。" : "上传原始图片，查看生成与修改的模型响应。"}</p>
+            {busy ? <div className="image-wait-status" role="status"><span className="image-spinner"/>计算中 · {elapsed.toFixed(1)} 秒</div> : <div className="image-capabilities"><div><span>01</span><b>AI 生成检测</b><small>LiteGen + NPR</small></div><div><span>02</span><b>局部修改定位</b><small>IML-ViT</small></div></div>}
+          </div> : <div className={"image-live-result tone-" + verdict.tone}>
+            <div className="image-verdict-tag">{verdict.tag}</div>
+            <h2 ref={resultHeading} tabIndex="-1">{verdict.title}</h2>
+            <p className="image-explanation">{result.verdict === "likely_real" ? "当前模型未发现强异常；仍需结合原图与来源核实。" : result.verdict === "ai_generated" ? "整图生成分值达到判断阈值，建议核实图片来源。" : result.verdict === "tampered" ? "修改分值达到判断阈值，可切换热力图查看模型响应。" : "当前输出接近判断边界，建议保留原始文件进一步复核。"}</p>
+            <Score label="AI 生成" value={result.scores.ai_generated} threshold={result.thresholds.ai}/>
+            <Score label="图片修改" value={result.scores.tampered} threshold={result.thresholds.tamper} blue/>
+            <p className="image-score-note">两项分值独立，不是图片真实或虚假的概率。</p>
+            <details className="image-evidence"><summary>检测依据与文件信息<span aria-hidden="true">＋</span></summary>
+              <ul>{result.evidence.map((item, i) => <li key={i}>{item}</li>)}</ul>
+              <dl><div><dt>图片尺寸</dt><dd>{result.input.width} × {result.input.height}</dd></div><div><dt>实际格式</dt><dd>{result.forensics.format}</dd></div><div><dt>处理耗时</dt><dd>{result.runtime.elapsed_seconds.toFixed(2)} 秒</dd></div><div><dt>EXIF 信息</dt><dd>{Object.keys(result.forensics.exif || {}).length ? "已读取，见报告" : "未读取到；不代表伪造"}</dd></div><div><dt>C2PA 来源凭证</dt><dd>{!result.forensics.c2pa.available ? "未启用验证" : result.forensics.c2pa.manifest_present ? "发现凭证，见报告" : "未检出；不代表伪造"}</dd></div><div><dt>模型版本</dt><dd>{result.modelVersion}</dd></div></dl>
+            </details>
+          </div>}
+          <div className="image-detect-actions">
+            {error && <p className="image-error" role="alert">{error}</p>}
+            {notice && <p className="image-notice" role="status">{notice}</p>}
+            <button type="button" className="image-primary" onClick={detect} disabled={busy || (imageError && !result)}><ImageIcon kind="scan"/>{busy ? "正在检测…" : result ? "重新检测" : error ? "重试检测" : "开始检测"}<span aria-hidden="true">↗</span></button>
+            {busy ? <button type="button" className="image-cancel" onClick={stopWaiting}>停止等待</button> : result ? <a className="image-report-download" href={result.artifacts.report} download><ImageIcon kind="download"/>下载检测报告</a> : <p className="image-local-note">在本机计算 · 图片不发送到外部服务</p>}
+          </div>
+        </aside>
+      </div>
+      <div className="image-after"><p>模型线索用于辅助复核，不作真实性证明或美妆功效判断。</p><div><button type="button" onClick={onBack}>返回种草笔记 <span aria-hidden="true">↗</span></button></div></div>
+    </section>;
+  }
+  window.ImageAuthenticityPage = ImageAuthenticityPage;
+})();
+
+</script>
+<script type="text/babel">
+/* ============ 主应用：状态机 + Tweaks ============ */
+const { useState, useEffect, useCallback } = React;
+const { useTweaks, TweaksPanel, TweakSection, TweakRadio } = window;
+const { HeroScene, PostPage, TextVerify, ScoreScreen, Compat, AiOriginPage, ImageAuthenticityPage } = window;
+const { PhaseBar } = window.UI;
+
+function App() {
+  const [t, setTweak] = useTweaks(window.TWEAK_DEFAULTS);
+  const [screen, setScreen] = useState("hero");
+  const [phase, setPhase] = useState(0);
+  const [postKey, setPostKey] = useState(0);
+
+  useEffect(() => {
+    document.documentElement.dataset.hue = t.themeHue === "蓝主" ? "blue" : "pink";
+  }, [t.themeHue]);
+
+  useEffect(() => {
+    const stage = document.querySelector(".stage");
+    if (stage) stage.scrollTop = 0;
+  }, [screen, postKey]);
+
+  const stepDelay = t.scanSpeed === "快速" ? 900 : 1700;
+
+  const onPhase = useCallback((i) => setPhase(i), []);
+  const resetPost = () => {
+    setPostKey((k) => k + 1);
+    setScreen("post");
+    setPhase(0);
+  };
+  const jumpTo = (i) => {
+    setScreen(["post", "image", "ai", "score", "compat"][i]);
+    setPhase(i);
+  };
+
+  return (
+    <div className="app">
+      <div className="public-demo-banner">公开演示版 · 原型页可交互 · AI 文本/图片真实检测需在本地启动模型服务</div>
+      {screen !== "hero" && (
+        <header className="topbar">
+          <button type="button" className="logo" onClick={() => { setScreen("hero"); }} aria-label="返回首页">
+            <span className="lg-dot">TG</span>
+            <span>TRUST GUARDIAN</span>
+          </button>
+          <PhaseBar current={phase} onJump={jumpTo} />
+          <div className="topbar-actions">
+            <button type="button" className={"topbar-ai-link topbar-image-link" + (screen === "image" ? " is-current" : "")} onClick={() => { setScreen("image"); setPhase(1); }}>图片检测</button>
+            <button type="button" className={"topbar-ai-link" + (screen === "ai" ? " is-current" : "")} onClick={() => { setScreen("ai"); setPhase(2); }}>AI 文本检测</button>
+            <span className="topbar-side">美妆种草核验 DEMO</span>
+          </div>
+        </header>
+      )}
+
+      <main className="stage">
+        {screen === "hero" && (
+          <HeroScene onEnter={() => { setScreen("post"); setPhase(0); }} onDirectAi={() => { setScreen("ai"); setPhase(2); }} onDirectImage={() => { setScreen("image"); setPhase(1); }} />
+        )}
+        {screen === "post" && (
+          <PostPage
+            key={postKey}
+            onPhase={onPhase}
+            onTextVerify={() => { setScreen("ai"); setPhase(2); }}
+            onImageVerify={() => { setScreen("image"); setPhase(1); }}
+          />
+        )}
+        {screen === "ai" && (
+          <AiOriginPage onBack={resetPost} onDemo={() => { setScreen("text"); setPhase(2); }} />
+        )}
+        {screen === "image" && <ImageAuthenticityPage onBack={resetPost} />}
+        {screen === "text" && (
+          <TextVerify onScore={() => { setScreen("score"); setPhase(3); }} stepDelay={stepDelay} />
+        )}
+        {screen === "score" && (
+          <ScoreScreen onContinue={resetPost} onCompat={() => { setScreen("compat"); setPhase(4); }} />
+        )}
+        {screen === "compat" && <Compat onBackPost={resetPost} />}
+      </main>
+
+      {screen !== "hero" && (
+        <footer className="foot">{screen === "image" ? "图片检测原型 · 公开演示版不连接模型 · 仅展示交互与结果结构" : screen === "ai" ? "AI 文本检测原型 · 公开演示版不连接模型 · 仅展示交互与结果结构" : "公开演示版 · 原型页使用演示数据 · 真实检测需在本地启动模型服务"}</footer>
+      )}
+
+      <TweaksPanel>
+        <TweakSection label="核验节奏" />
+        <TweakRadio label="扫描速度" value={t.scanSpeed} options={["标准", "快速"]} onChange={(v) => setTweak("scanSpeed", v)} />
+        <TweakSection label="视觉" />
+        <TweakRadio label="主题色" value={t.themeHue} options={["粉主", "蓝主"]} onChange={(v) => setTweak("themeHue", v)} />
+      </TweaksPanel>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+
+</script>
+</body>
+</html>
